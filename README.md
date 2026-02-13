@@ -67,7 +67,7 @@ Seat Probability: 72%
 
 ---
 
-## 🗂 Basic Database Structure
+## Basic Database Structure
 
 **study_spots**
 - id
@@ -85,6 +85,6 @@ Seat Probability: 72%
 
 ---
 
-## 🎯 Mission
+## Mission
 
 Help students know where they can study before they waste time walking there.
