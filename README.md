@@ -37,7 +37,7 @@ Build a web app that:
 
 ---
 
-## 🧠 Core Features (MVP)
+## Core Features (MVP)
 
 ### 1. Interactive Map
 - Display curated study spots
