@@ -1,9 +1,9 @@
 # StudySpot
-Find study spots lol.
 
 > Find where you can actually study right now.
 
-StudySpot helps students see real-time availability of study locations around UCF and nearby Orlando cafés. Instead of guessing which places are full, users see a probability score based on recent student updates and time-based trends.
+StudySpot is a real-time study spot discovery platform for UCF students and nearby Orlando cafés.  
+Instead of guessing which places are full, students see a live availability score powered by verified check-ins and time-based trends — plus what others there are studying.
 
 ---
 
@@ -11,80 +11,47 @@ StudySpot helps students see real-time availability of study locations around UC
 
 Build a web app that:
 
-- Shows study spots on a map  
-- Lets students submit crowd status  
+- Displays campus and nearby Orlando study spots on an interactive map  
+- Allows verified check-ins with study topic and vibe tags  
 - Calculates a live availability score  
-- Ranks locations by likelihood of finding a seat  
+- Ranks locations by likelihood of finding a seat and personal preference  
+- Enables lightweight open study groups  
 
 ---
 
-## Tech Stack
+## Core Features
 
-**Frontend**
-- Next.js (React + TypeScript)
-- Tailwind CSS
-- Mapbox or Google Maps API
+### Interactive Map
 
-**Backend**
-- FastAPI (Python)
-
-**Database**
-- PostgreSQL (Supabase / Neon)
-
-**Hosting**
-- Vercel (frontend)
-- Railway / Render (backend)
+- Curated campus and Orlando study spots  
+- Clickable location cards  
+- Live availability score  
+- Current heat level and top study tags  
 
 ---
 
-## Core Features (MVP)
+### Verified Check-Ins
 
-### 1. Interactive Map
-- Display curated study spots
-- Clickable location cards
-- Show availability score
+Users can check in and select:
 
-### 2. Crowd Report Submission
-Users can submit:
-- Plenty of seats
-- Filling
-- Packed
+- Study topic (e.g., CS, Calc 2, MCAT)  
+- Vibe (Quiet / Collaborative)  
 
-Reports are timestamped and decay over time.
+Check-ins:
 
-### 3. Availability Score
+- Are GPS-verified  
+- Drive heat levels and topic clustering  
+- Expire after inactivity  
+
+---
+
+### Availability Score
+
 Calculated using:
-- Recent reports (high weight)
-- Historical time-of-day patterns (medium weight)
+
+- Active check-ins (high weight)  
+- Manual crowd reports (medium weight)  
+- Historical time-of-day patterns (medium weight)  
 
 Example output:
-Seat Probability: 72%
 
-### 4. Filters
-- Quiet
-- Has outlets
-- Open now
-
----
-
-## Basic Database Structure
-
-**study_spots**
-- id
-- name
-- lat
-- lng
-- has_outlets
-- quiet_rating
-
-**crowd_reports**
-- id
-- study_spot_id
-- status
-- created_at
-
----
-
-## Mission
-
-Help students know where they can study before they waste time walking there.
