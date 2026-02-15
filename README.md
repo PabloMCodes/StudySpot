@@ -17,6 +17,8 @@ Build a web app that:
 - Ranks locations by likelihood of finding a seat and personal preference  
 - Enables lightweight open study groups
 - Allows users to connect with eachother through messages or requests to join their study session.
+- Students can rate and save favorite locations
+- Students can see eachothers profiles to see most visited study spots or most common study topics
 
 ---
 
