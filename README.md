@@ -15,7 +15,8 @@ Build a web app that:
 - Allows verified check-ins with study topic and vibe tags  
 - Calculates a live availability score  
 - Ranks locations by likelihood of finding a seat and personal preference  
-- Enables lightweight open study groups  
+- Enables lightweight open study groups
+- Allows users to connect with eachother through messages or requests to join their study session.
 
 ---
 
