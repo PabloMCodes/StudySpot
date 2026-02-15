@@ -12,7 +12,7 @@ Instead of guessing which places are full, students see a live availability scor
 Build a web app that:
 
 - Displays campus and nearby Orlando study spots on an interactive map  
-- Allows verified check-ins with study topic and vibe tags  
+- Allows verified check-ins with study topic tags  
 - Calculates a live availability score  
 - Ranks locations by likelihood of finding a seat and personal preference  
 - Enables lightweight open study groups
@@ -53,6 +53,3 @@ Calculated using:
 - Active check-ins (high weight)  
 - Manual crowd reports (medium weight)  
 - Historical time-of-day patterns (medium weight)  
-
-Example output:
-
