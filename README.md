@@ -20,7 +20,7 @@ Build a web app that:
 - Students can rate and save favorite locations
 - Students can see eachothers profiles to see most visited study spots or most common study topics, etc.
 - Allow users to be able to create their own study spots
-
+- AI prompting to search "What do you want your environment to be"
 ---
 
 ## Core Features
