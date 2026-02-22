@@ -7,14 +7,6 @@ Instead of guessing which places are full, students see a live availability scor
 
 ---
 
-# StudySpot
-
-StudySpot helps students know **where they can study before they waste time walking there.**
-
-Launching open to all of Orlando, with early density focus around the University of Central Florida (UCF).
-
----
-
 ## MVP Goal
 
 Build a web app that:
@@ -26,7 +18,9 @@ Build a web app that:
 - Enables lightweight scheduled study sessions
 - Allows users to join study sessions and view participant lists
 - Allows users to toggle “Open to Study” to connect with others at the same location
-- Provides public profiles showing most visited study spots and most studied topics
+- Provides public user profiles
+- Allows users to follow other users
+- Allows users to save, rate, and write notes about study spots
 
 ---
 
@@ -56,12 +50,12 @@ Each location displays:
 
 Users can check in and select:
 
-- **Busyness level**
+- Busyness level
   - Plenty
   - Filling
   - Packed
-- **Study topic** (optional, e.g., CS, Calc 2, MCAT)
-- **“Open to Study” toggle** (optional)
+- Study topic (optional, e.g., CS, Calc 2, MCAT)
+- “Open to Study” toggle (optional)
 
 Check-ins:
 
@@ -81,11 +75,11 @@ Availability is calculated using:
 - Time-of-day baseline pattern (medium weight)
 - Day-of-week patterns (medium weight)
 
-Each location also displays a **Confidence Indicator**:
+Each location displays a Confidence Indicator:
 
-- 🟢 **High confidence** — dense recent activity
-- 🟡 **Moderate confidence**
-- ⚪ **Limited data**
+- High confidence — dense recent activity
+- Moderate confidence
+- Limited data
 
 This ensures transparency, especially in low-activity areas.
 
@@ -110,7 +104,7 @@ Other users can:
 
 Sessions automatically expire after their end time.
 
-> Note: No full messaging system is included in the MVP.
+No full messaging system is included in the MVP.
 
 ---
 
@@ -121,10 +115,51 @@ Public profiles display:
 - Total check-ins
 - Most visited study spots
 - Most studied topics
+- Saved or favorited locations
+- Optional ratings
+- Optional public notes
 
 Profiles show aggregated data only.
 
 No real-time tracking or live location broadcasting.
+
+---
+
+### Save, Rate, and Personal Notes
+
+Users can:
+
+- Save or favorite study spots
+- Add a rating (optional)
+- Write a personal note
+- Set note visibility:
+  - Private
+  - Public
+
+Public notes appear only on the user’s profile.
+
+Private notes are visible only to the user.
+
+Notes are not displayed globally on location pages.
+
+---
+
+### Follow System (Level 1 Social)
+
+Users can:
+
+- Follow other users
+- View public profiles of users they follow
+- See follower and following counts
+
+The follow system does not include:
+
+- Mutual friend approval
+- Messaging
+- Activity feeds
+- Notifications
+
+This keeps the social layer lightweight and focused.
 
 ---
 
@@ -134,11 +169,11 @@ The following features may be added if development remains on schedule:
 
 - Direct messaging between users
 - Full chat system for study sessions
-- Saving favorite locations
-- Location rating system
+- Friends-only content visibility tier
+- Location rating aggregation system
 - User-created study spots
 - Advanced gamification (badges, streaks, leaderboards)
-- AI-powered natural language search (“What environment do you want?”)
+- AI-powered natural language search
 - Advanced ML-based recommendation engine
 - Notification system for study sessions
 
@@ -155,5 +190,4 @@ StudySpot prioritizes:
 
 The goal is to make answering this question effortless:
 
-> **“Where should I go to study right now?”**
-
+“Where should I go to study right now?”
