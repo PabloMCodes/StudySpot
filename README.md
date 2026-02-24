@@ -191,3 +191,5 @@ StudySpot prioritizes:
 The goal is to make answering this question effortless:
 
 “Where should I go to study right now?”
+
+Hello
