@@ -1,4 +1,7 @@
-"""SQLAlchemy database primitives for declarative models and sessions."""
+"""
+Database setup file.
+This just means this file connects the app to Postgres and shares DB tools.
+"""
 
 from collections.abc import Generator
 import os
@@ -21,12 +24,12 @@ SessionLocal = sessionmaker(
 
 
 class Base(DeclarativeBase):
-    """Base declarative class for all ORM models."""
+    """Shared model base class. This just means all tables start from this."""
 
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Yield a DB session for request-scoped dependencies."""
+    """Request DB session helper. This just means open now, close after use."""
     db = SessionLocal()
     try:
         yield db

@@ -1,1 +1,4 @@
-/** Purpose: UI button for saving/bookmarking a location or item. */
+/**
+ * Save button component file.
+ * This just means the button for favoriting a spot goes here.
+ */

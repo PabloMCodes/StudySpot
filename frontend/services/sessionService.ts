@@ -1,1 +1,4 @@
-/** Purpose: Frontend service for session-related API calls. */
+/**
+ * Session service file.
+ * This just means frontend session API calls go here.
+ */

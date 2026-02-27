@@ -1,1 +1,4 @@
-/** Purpose: UI panel for showing selected location details. */
+/**
+ * Location panel component file.
+ * This just means selected location details will show from here.
+ */

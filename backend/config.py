@@ -1,1 +1,4 @@
-"""Purpose: Stores environment/config settings for the backend."""
+"""
+Backend settings file.
+This just means app settings (like keys and URLs) are read here.
+"""

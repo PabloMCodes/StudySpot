@@ -1,1 +1,4 @@
-/** Purpose: UI button for logging out the current user. */
+/**
+ * Logout button component file.
+ * This just means the sign-out button UI belongs here.
+ */

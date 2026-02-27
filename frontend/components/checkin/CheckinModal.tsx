@@ -1,1 +1,4 @@
-/** Purpose: UI modal component used when creating a check-in. */
+/**
+ * Check-in modal component file.
+ * This just means the popup for posting a check-in goes here.
+ */

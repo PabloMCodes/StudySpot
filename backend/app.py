@@ -1,1 +1,4 @@
-"""Purpose: Main FastAPI entry file where the backend app starts."""
+"""
+Backend app entry file.
+This just means this is where the API server starts.
+"""

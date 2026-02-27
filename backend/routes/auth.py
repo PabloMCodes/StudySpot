@@ -1,1 +1,4 @@
-"""Purpose: Contains authentication API route handlers."""
+"""
+Auth route file.
+This just means login and token endpoints will live here.
+"""

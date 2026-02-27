@@ -1,1 +1,4 @@
-/** Purpose: Frontend service for authentication-related API calls. */
+/**
+ * Auth service file.
+ * This just means frontend auth API calls go here.
+ */

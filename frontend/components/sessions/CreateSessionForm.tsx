@@ -1,1 +1,4 @@
-/** Purpose: UI form component for creating a new study session. */
+/**
+ * Create-session form component file.
+ * This just means the form for making a session goes here.
+ */

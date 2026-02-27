@@ -1,1 +1,4 @@
-/** Purpose: UI input component for submitting a rating. */
+/**
+ * Rating input component file.
+ * This just means user rating input UI belongs here.
+ */

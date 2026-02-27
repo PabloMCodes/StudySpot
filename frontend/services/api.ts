@@ -1,1 +1,4 @@
-/** Purpose: Shared API client entry point for frontend service calls. */
+/**
+ * Shared API service file.
+ * This just means common request setup code belongs here.
+ */

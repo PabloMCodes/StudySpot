@@ -1,1 +1,4 @@
-/** Purpose: UI marker component for showing a single location on the map. */
+/**
+ * Location marker component file.
+ * This just means one map pin UI piece belongs here.
+ */

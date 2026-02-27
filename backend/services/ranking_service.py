@@ -1,1 +1,4 @@
-"""Purpose: Service layer for ranking/sorting recommendation logic."""
+"""
+Ranking logic file.
+This just means sorting spots/sessions will be handled here.
+"""

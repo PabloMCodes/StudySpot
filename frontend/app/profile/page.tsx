@@ -1,1 +1,4 @@
-/** Purpose: Profile page route for the frontend app. */
+/**
+ * Profile page file.
+ * This just means this page will show a user's profile info.
+ */

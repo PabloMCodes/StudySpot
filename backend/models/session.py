@@ -1,4 +1,7 @@
-"""Study session and participant models for collaborative study groups."""
+"""
+Study session model file.
+This just means this file defines sessions and who joined them.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class StudySession(Base):
-    """A student-created study session associated with one location."""
+    """Session table class. This just means one row is one study meetup."""
 
     __tablename__ = "study_sessions"
     __table_args__ = (
@@ -67,7 +70,7 @@ class StudySession(Base):
 
 
 class SessionParticipant(Base):
-    """Join table for many-to-many session participation."""
+    """Session join class. This just means who joined which session."""
 
     __tablename__ = "session_participants"
     __table_args__ = (Index("ix_session_participants_user_id", "user_id"),)

@@ -1,1 +1,4 @@
-/** Purpose: Main map UI component container. */
+/**
+ * Map component file.
+ * This just means the main map UI will be built here.
+ */

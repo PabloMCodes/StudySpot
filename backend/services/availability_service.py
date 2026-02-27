@@ -1,1 +1,4 @@
-"""Purpose: Service layer for availability-related backend logic."""
+"""
+Availability logic file.
+This just means crowd score calculations will be handled here.
+"""

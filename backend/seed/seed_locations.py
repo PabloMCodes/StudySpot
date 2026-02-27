@@ -1,1 +1,4 @@
-"""Purpose: Seed script file for adding starter location data."""
+"""
+Starter data seed file.
+This just means this file will load initial locations into the database.
+"""

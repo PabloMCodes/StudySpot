@@ -1,1 +1,4 @@
-/** Purpose: Frontend service for user-related API calls. */
+/**
+ * User service file.
+ * This just means frontend user API calls go here.
+ */

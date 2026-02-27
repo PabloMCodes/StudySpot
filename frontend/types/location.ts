@@ -1,1 +1,4 @@
-/** Purpose: Shared TypeScript type definitions for location data. */
+/**
+ * Location type file.
+ * This just means the location data shape is defined here.
+ */

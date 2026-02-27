@@ -1,1 +1,4 @@
-/** Purpose: Shared TypeScript type definitions for session data. */
+/**
+ * Session type file.
+ * This just means the session data shape is defined here.
+ */

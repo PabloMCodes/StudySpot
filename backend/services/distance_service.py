@@ -1,1 +1,4 @@
-"""Purpose: Service layer for distance/geolocation helper logic."""
+"""
+Distance helper file.
+This just means location distance math will be handled here.
+"""

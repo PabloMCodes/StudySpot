@@ -1,1 +1,4 @@
-/** Purpose: UI button for joining an existing study session. */
+/**
+ * Join-session button component file.
+ * This just means the button to join a session belongs here.
+ */

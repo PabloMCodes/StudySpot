@@ -1,4 +1,7 @@
-"""Check-in model for user-reported location busyness."""
+"""
+Check-in model file.
+This just means this file stores quick crowd updates from users.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class CheckInStatus(str, PyEnum):
-    """MVP crowd status values submitted by users during check-in."""
+    """Status choices. This just means users pick one crowd level word."""
 
     plenty = "plenty"
     filling = "filling"
@@ -27,7 +30,7 @@ class CheckInStatus(str, PyEnum):
 
 
 class CheckIn(Base):
-    """Represents a time-bounded check-in signal at a location."""
+    """Check-in table class. This just means one row is one crowd report."""
 
     __tablename__ = "checkins"
     __table_args__ = (Index("ix_checkins_created_at", "created_at"),)

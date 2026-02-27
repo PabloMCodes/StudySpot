@@ -1,1 +1,4 @@
-"""Purpose: Holds reusable auth dependencies used by protected routes."""
+"""
+Shared auth helper file.
+This just means login-check helpers are kept in one reusable place.
+"""

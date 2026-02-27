@@ -1,1 +1,4 @@
-"""Purpose: Contains study session API route handlers."""
+"""
+Study session route file.
+This just means endpoints for creating/joining sessions go here.
+"""

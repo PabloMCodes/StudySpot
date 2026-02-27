@@ -1,4 +1,7 @@
-"""Saved location model mapping users to favorited locations."""
+"""
+Saved location model file.
+This just means this file stores which spots a user bookmarked.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class UserLocation(Base):
-    """Join table that stores which locations a user has saved."""
+    """Saved join class. This just means one user saved one location."""
 
     __tablename__ = "user_locations"
 

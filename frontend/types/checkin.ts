@@ -1,1 +1,4 @@
-/** Purpose: Shared TypeScript type definitions for check-in data. */
+/**
+ * Check-in type file.
+ * This just means the check-in data shape is defined here.
+ */

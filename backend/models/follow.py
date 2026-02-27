@@ -1,4 +1,7 @@
-"""Follow relationship model connecting one user to another."""
+"""
+Follow model file.
+This just means this file stores who follows who.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class Follow(Base):
-    """Represents a directed follow edge between two users."""
+    """Follow table class. This just means one row is one follow connection."""
 
     __tablename__ = "follows"
     __table_args__ = (

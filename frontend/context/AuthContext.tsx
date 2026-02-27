@@ -1,1 +1,4 @@
-/** Purpose: Shared auth context for managing user auth state in the app. */
+/**
+ * Auth context file.
+ * This just means shared login state for the app goes here.
+ */

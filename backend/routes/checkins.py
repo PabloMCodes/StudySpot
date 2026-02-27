@@ -1,1 +1,4 @@
-"""Purpose: Contains check-in API route handlers."""
+"""
+Check-in route file.
+This just means endpoints for posting crowd updates go here.
+"""

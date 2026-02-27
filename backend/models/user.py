@@ -1,4 +1,7 @@
-"""User model for Google-authenticated accounts."""
+"""
+User model file.
+This just means this file defines what a user record looks like.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class User(Base):
-    """Core user identity model linked to Google OAuth data."""
+    """User table class. This just means one row is one app user."""
 
     __tablename__ = "users"
 
@@ -66,14 +69,16 @@ class User(Base):
         passive_deletes=True,
     )
 
-    # Users following this user.
+    # Followers relationship.
+    # This just means people who follow this user.
     followers: Mapped[list[Follow]] = relationship(
         back_populates="following_user",
         foreign_keys="Follow.following_id",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    # Users this user follows.
+    # Following relationship.
+    # This just means people this user follows.
     following: Mapped[list[Follow]] = relationship(
         back_populates="follower_user",
         foreign_keys="Follow.follower_id",

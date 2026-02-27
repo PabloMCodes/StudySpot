@@ -1,1 +1,4 @@
-/** Purpose: UI list for showing followers/following users. */
+/**
+ * Followers list component file.
+ * This just means follower/following list UI belongs here.
+ */

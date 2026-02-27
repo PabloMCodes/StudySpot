@@ -1,1 +1,4 @@
-/** Purpose: UI button for starting login/auth flow. */
+/**
+ * Login button component file.
+ * This just means the sign-in button UI belongs here.
+ */

@@ -1,4 +1,7 @@
-"""Location model for study spots in the StudySpot catalog."""
+"""
+Location model file.
+This just means this file defines what a study spot record looks like.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class Location(Base):
-    """Represents a physical place where students can study."""
+    """Location table class. This just means one row is one study place."""
 
     __tablename__ = "locations"
     __table_args__ = (
