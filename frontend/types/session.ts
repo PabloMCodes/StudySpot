@@ -1,4 +1,10 @@
-/**
- * Session type file.
- * This just means the session data shape is defined here.
- */
+export interface StudySession {
+  id: string;
+  locationId: string;
+  topic: string;
+  startTime: string;
+  endTime: string;
+  maxParticipants: number;
+  participantCount: number;
+  isPublic: boolean;
+}

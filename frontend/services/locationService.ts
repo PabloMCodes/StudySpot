@@ -1,4 +1,6 @@
-/**
- * Location service file.
- * This just means frontend location API calls go here.
- */
+import { apiRequest, type ApiResponse } from "./api";
+import type { Location } from "@/types/location";
+
+export function getLocations(): Promise<ApiResponse<Location[]>> {
+  return apiRequest<Location[]>("/locations");
+}

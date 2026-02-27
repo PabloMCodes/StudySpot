@@ -1,4 +1,12 @@
-/**
- * Location type file.
- * This just means the location data shape is defined here.
- */
+export interface Location {
+  id: string;
+  name: string;
+  description?: string | null;
+  latitude: number;
+  longitude: number;
+  quietLevel: number;
+  hasOutlets: boolean;
+  availabilityScore: number;
+  confidence: "high" | "moderate" | "limited";
+  lastUpdated: string;
+}

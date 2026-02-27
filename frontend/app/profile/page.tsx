@@ -1,4 +1,5 @@
-/**
- * Profile page file.
- * This just means this page will show a user's profile info.
- */
+"use client";
+
+export default function ProfilePage() {
+  return <main>EhStudy Spot</main>;
+}
