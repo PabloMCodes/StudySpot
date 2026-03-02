@@ -12,7 +12,6 @@ from services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
 @router.post("/google")
 def google_auth(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
     try:
