@@ -10,7 +10,7 @@ body {
   margin: 0;
 }
 
-.gold-3d-title {
+.gold-3d-title { 
   background: linear-gradient(180deg, #fff9c4 0%, #facc15 38%, #f59e0b 62%, #b45309 100%);
   -webkit-background-clip: text;
   background-clip: text;
