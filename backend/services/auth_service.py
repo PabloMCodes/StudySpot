@@ -50,7 +50,7 @@ def verify_google_id_token(id_token: str) -> dict:
             GOOGLE_CLIENT_ID,
         )
     except Exception as exc:
-        raise ValueError("Invalid Google ID token") from exc
+        raise ValueError(f"Invalid Google ID token {exc}")
 
     if id_info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
         raise ValueError("Invalid Google token issuer")
