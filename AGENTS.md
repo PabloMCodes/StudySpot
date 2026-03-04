@@ -159,7 +159,7 @@ No business logic inside components.
 
 ## 9. Simplicity Rule
 
-This is an MVP.
+This is an MVP but remember that the goal is for this to scale to at least all UCF students very soon, if introduing a new feature or code will likely prohibit this due to complexity, let us know immedietly before going forward.
 
 Do not introduce:
 - Advanced caching
