@@ -19,6 +19,7 @@ REQUIRED_FIELDS = {
     "description",
     "open_time",
     "close_time",
+    "hours",
 }
 SYNC_FIELDS = (
     "name",
@@ -29,6 +30,7 @@ SYNC_FIELDS = (
     "description",
     "open_time",
     "close_time",
+    "hours",
 )
 
 
@@ -47,6 +49,8 @@ def _load_locations() -> list[dict]:
         if missing:
             missing_sorted = ", ".join(sorted(missing))
             raise ValueError(f"Location at index {index} is missing required fields: {missing_sorted}")
+        if location["hours"] is not None and not isinstance(location["hours"], dict):
+            raise ValueError(f"Location at index {index} has invalid hours: must be an object or null.")
 
     return payload
 
@@ -60,8 +64,8 @@ def _apply_fields(location: Location, values: dict) -> None:
 
 def seed_locations() -> None:
     db = SessionLocal()
-    inserted = 0
-    updated = 0
+    inserted_count = 0
+    updated_count = 0
 
     try:
         locations = _load_locations()
@@ -71,12 +75,12 @@ def seed_locations() -> None:
 
             if existing:
                 _apply_fields(existing, loc)
-                updated += 1
+                updated_count += 1
             else:
                 new_location = Location(source_key=loc["source_key"])
                 _apply_fields(new_location, loc)
                 db.add(new_location)
-                inserted += 1
+                inserted_count += 1
 
         db.commit()
     except Exception:
@@ -85,8 +89,8 @@ def seed_locations() -> None:
     finally:
         db.close()
 
-    print(f"Inserted {inserted} locations.")
-    print(f"Updated {updated} locations.")
+    print(f"inserted_count={inserted_count}")
+    print(f"updated_count={updated_count}")
 
 
 if __name__ == "__main__":

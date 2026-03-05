@@ -8,7 +8,16 @@
     "category": "Library",
     "description": "Main UCF campus library with multiple study floors and strong Wi-Fi.",
     "open_time": "07:00",
-    "close_time": "22:00"
+    "close_time": "22:00",
+    "hours": {
+      "mon": {"open": "07:00", "close": "22:00"},
+      "tue": {"open": "07:00", "close": "22:00"},
+      "wed": {"open": "07:00", "close": "22:00"},
+      "thu": {"open": "07:00", "close": "22:00"},
+      "fri": {"open": "07:00", "close": "23:00"},
+      "sat": {"open": "08:00", "close": "23:00"},
+      "sun": {"open": "08:00", "close": "21:00"}
+    }
   },
   {
     "source_key": "manual:foxtail-university",
@@ -19,7 +28,16 @@
     "category": "Coffee Shop",
     "description": "Popular coffee spot near campus with tables and power outlets.",
     "open_time": "06:30",
-    "close_time": "21:00"
+    "close_time": "21:00",
+    "hours": {
+      "mon": {"open": "06:30", "close": "21:00"},
+      "tue": {"open": "06:30", "close": "21:00"},
+      "wed": {"open": "06:30", "close": "21:00"},
+      "thu": {"open": "06:30", "close": "21:00"},
+      "fri": {"open": "06:30", "close": "22:00"},
+      "sat": {"open": "07:00", "close": "22:00"},
+      "sun": {"open": "07:00", "close": "20:00"}
+    }
   },
   {
     "source_key": "manual:snowbean-ucf",
@@ -30,7 +48,16 @@
     "category": "Cafe",
     "description": "Quiet cafe option for solo study sessions and small groups.",
     "open_time": "11:00",
-    "close_time": "23:00"
+    "close_time": "23:00",
+    "hours": {
+      "mon": {"open": "11:00", "close": "22:00"},
+      "tue": {"open": "11:00", "close": "22:00"},
+      "wed": {"open": "11:00", "close": "22:00"},
+      "thu": {"open": "11:00", "close": "22:00"},
+      "fri": {"open": "11:00", "close": "23:00"},
+      "sat": {"open": "11:00", "close": "23:00"},
+      "sun": {"open": "11:00", "close": "21:00"}
+    }
   },
   {
     "source_key": "manual:tech-commons",
@@ -41,7 +68,16 @@
     "category": "Campus Space",
     "description": "Open collaborative space with computers, charging, and flexible seating.",
     "open_time": "08:00",
-    "close_time": "20:00"
+    "close_time": "20:00",
+    "hours": {
+      "mon": {"open": "08:00", "close": "20:00"},
+      "tue": {"open": "08:00", "close": "20:00"},
+      "wed": {"open": "08:00", "close": "20:00"},
+      "thu": {"open": "08:00", "close": "20:00"},
+      "fri": {"open": "08:00", "close": "18:00"},
+      "sat": {"open": "10:00", "close": "18:00"},
+      "sun": {"open": "10:00", "close": "18:00"}
+    }
   },
   {
     "source_key": "manual:all-knight-study",
@@ -52,7 +88,16 @@
     "category": "Study Lounge",
     "description": "Late-night UCF study area with large tables and steady foot traffic.",
     "open_time": "00:00",
-    "close_time": "23:59"
+    "close_time": "23:59",
+    "hours": {
+      "mon": {"open": "00:00", "close": "23:59"},
+      "tue": {"open": "00:00", "close": "23:59"},
+      "wed": {"open": "00:00", "close": "23:59"},
+      "thu": {"open": "00:00", "close": "23:59"},
+      "fri": {"open": "00:00", "close": "23:59"},
+      "sat": {"open": "00:00", "close": "23:59"},
+      "sun": {"open": "00:00", "close": "23:59"}
+    }
   },
   {
     "source_key": "manual:stardust-video-coffee",
@@ -63,7 +108,16 @@
     "category": "Coffee Shop",
     "description": "Cozy local coffeehouse with eclectic seating and a relaxed atmosphere.",
     "open_time": "08:00",
-    "close_time": "23:00"
+    "close_time": "23:00",
+    "hours": {
+      "mon": {"open": "08:00", "close": "22:00"},
+      "tue": {"open": "08:00", "close": "22:00"},
+      "wed": {"open": "08:00", "close": "22:00"},
+      "thu": {"open": "08:00", "close": "22:00"},
+      "fri": {"open": "08:00", "close": "23:00"},
+      "sat": {"open": "08:00", "close": "23:00"},
+      "sun": {"open": "08:00", "close": "21:00"}
+    }
   },
   {
     "source_key": "manual:downtown-public-library",
@@ -74,7 +128,16 @@
     "category": "Library",
     "description": "Central public library branch with quiet reading rooms and desk space.",
     "open_time": "10:00",
-    "close_time": "20:00"
+    "close_time": "20:00",
+    "hours": {
+      "mon": {"open": "10:00", "close": "20:00"},
+      "tue": {"open": "10:00", "close": "20:00"},
+      "wed": {"open": "10:00", "close": "20:00"},
+      "thu": {"open": "10:00", "close": "20:00"},
+      "fri": {"open": "10:00", "close": "18:00"},
+      "sat": {"open": "10:00", "close": "18:00"},
+      "sun": {"open": "12:00", "close": "18:00"}
+    }
   },
   {
     "source_key": "manual:barnes-noble-waterford",
@@ -85,6 +148,15 @@
     "category": "Bookstore",
     "description": "Bookstore cafe setting suitable for long individual study blocks.",
     "open_time": "09:00",
-    "close_time": "21:00"
+    "close_time": "21:00",
+    "hours": {
+      "mon": {"open": "09:00", "close": "21:00"},
+      "tue": {"open": "09:00", "close": "21:00"},
+      "wed": {"open": "09:00", "close": "21:00"},
+      "thu": {"open": "09:00", "close": "21:00"},
+      "fri": {"open": "09:00", "close": "22:00"},
+      "sat": {"open": "09:00", "close": "22:00"},
+      "sun": {"open": "10:00", "close": "20:00"}
+    }
   }
 ]
