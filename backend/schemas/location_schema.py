@@ -25,6 +25,7 @@ class LocationResponse(BaseModel):
     id: UUID
     name: str
     description: str | None = None
+    comment_count: int = 0
     latitude: float
     longitude: float
     quiet_level: int = Field(ge=1, le=5)
