@@ -192,4 +192,10 @@ The goal is to make answering this question effortless:
 
 “Where should I go to study right now?”
 
-Hello
+---
+
+## Backend Schema Workflow
+
+All backend schema changes must go through Alembic migrations. See:
+
+- `backend/MIGRATIONS.md`
