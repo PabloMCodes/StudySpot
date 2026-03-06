@@ -1,0 +1,152 @@
+[
+{
+"source_key":"manual:ucf-hitt-library",
+"name":"John C. Hitt Library",
+"address":"12701 Pegasus Dr, Orlando, FL 32816",
+"latitude":28.6005,
+"longitude":-81.2001,
+"category":"library",
+"description":"The main library at UCF with multiple quiet study floors, group study rooms, and reliable Wi-Fi throughout the building. It is one of the most popular study locations on campus, especially during midterms and finals.",
+"hours":null
+},
+{
+"source_key":"manual:ucf-tech-commons",
+"name":"UCF Tech Commons",
+"address":"12701 Pegasus Dr, Orlando, FL 32816",
+"latitude":28.6024,
+"longitude":-81.2006,
+"category":"campus",
+"description":"A collaborative workspace inside the UCF library with computers, charging stations, and flexible seating. Students often use this space for group projects, coding, and technical work.",
+"hours":null
+},
+{
+"source_key":"manual:foxtail-university",
+"name":"Foxtail Coffee Co (University)",
+"address":"4250 Alafaya Trail, Oviedo, FL 32765",
+"latitude":28.5983,
+"longitude":-81.2075,
+"category":"coffee",
+"description":"A popular coffee shop near UCF known for its specialty drinks and relaxed study environment. Many students come here for long study sessions thanks to the large tables and consistent Wi-Fi.",
+"hours":null
+},
+{
+"source_key":"manual:snowbean",
+"name":"Snowbean",
+"address":"12178 Collegiate Way, Orlando, FL 32817",
+"latitude":28.5968,
+"longitude":-81.2027,
+"category":"boba",
+"description":"A modern dessert and boba cafe popular with UCF students for late evening study sessions. The space has a relaxed atmosphere and is often used for casual studying or small group work.",
+"hours":null
+},
+{
+"source_key":"manual:kung-fu-tea",
+"name":"Kung Fu Tea UCF",
+"address":"11550 University Blvd, Orlando, FL 32817",
+"latitude":28.5974,
+"longitude":-81.2180,
+"category":"boba",
+"description":"A busy boba tea shop near UCF with plenty of seating and a lively atmosphere. Students often study here while grabbing drinks and snacks between classes.",
+"hours":null
+},
+{
+"source_key":"manual:qreate-coffee",
+"name":"Qreate Coffee",
+"address":"12140 Collegiate Way, Orlando, FL 32817",
+"latitude":28.5970,
+"longitude":-81.2043,
+"category":"coffee",
+"description":"A sleek coffee shop near campus known for its minimalist design and strong espresso drinks. It attracts many students looking for a quieter environment for focused studying.",
+"hours":null
+},
+{
+"source_key":"manual:vespr-coffee",
+"name":"Vespr Coffee Bar",
+"address":"626 N Alafaya Trail, Orlando, FL 32828",
+"latitude":28.5560,
+"longitude":-81.2076,
+"category":"coffee",
+"description":"A stylish coffee bar in the Waterford Lakes area that offers a calm atmosphere and high-quality coffee. Students often visit for quieter study sessions away from the busy campus environment.",
+"hours":null
+},
+{
+"source_key":"manual:light-on-the-sugar",
+"name":"Light on the Sugar",
+"address":"12140 Collegiate Way Suite 190, Orlando, FL 32817",
+"latitude":28.5964,
+"longitude":-81.2037,
+"category":"cafe",
+"description":"A modern dessert cafe known for Asian-style pastries and drinks. Many UCF students stop here to study or work on laptops while enjoying desserts and tea.",
+"hours":null
+},
+{
+"source_key":"manual:panera-ucf",
+"name":"Panera Bread (University Blvd)",
+"address":"12301 University Blvd, Orlando, FL 32817",
+"latitude":28.5971,
+"longitude":-81.2047,
+"category":"cafe",
+"description":"A casual cafe with reliable Wi-Fi, comfortable seating, and plenty of outlets. It is a dependable option for long individual study sessions or small group meetings.",
+"hours":null
+},
+{
+"source_key":"manual:starbucks-university",
+"name":"Starbucks (University Blvd)",
+"address":"11801 University Blvd, Orlando, FL 32817",
+"latitude":28.5977,
+"longitude":-81.2150,
+"category":"coffee",
+"description":"A busy Starbucks location close to UCF that many students use as a quick study stop. Seating fills up quickly during peak hours but the environment works well for short study sessions.",
+"hours":null
+},
+{
+"source_key":"manual:lineage-coffee",
+"name":"Lineage Coffee Roasting",
+"address":"1011 E Colonial Dr, Orlando, FL 32803",
+"latitude":28.5536,
+"longitude":-81.3676,
+"category":"coffee",
+"description":"One of Orlando’s most respected specialty coffee shops with a calm atmosphere and excellent coffee. It attracts many remote workers and students looking for a focused study environment.",
+"hours":null
+},
+{
+"source_key":"manual:stardust",
+"name":"Stardust Video & Coffee",
+"address":"1842 Winter Park Rd, Orlando, FL 32803",
+"latitude":28.5712,
+"longitude":-81.3466,
+"category":"coffee",
+"description":"A unique coffee shop and vintage video store hybrid with an artsy and relaxed vibe. It is popular among students and creatives looking for a comfortable place to read or study.",
+"hours":null
+},
+{
+"source_key":"manual:downtown-library",
+"name":"Orlando Public Library",
+"address":"101 E Central Blvd, Orlando, FL 32801",
+"latitude":28.5425,
+"longitude":-81.3761,
+"category":"library",
+"description":"The main branch of the Orange County Library System with large quiet reading areas and study desks. It is a great off-campus option for focused studying in a traditional library environment.",
+"hours":null
+},
+{
+"source_key":"manual:waterford-barnes",
+"name":"Barnes & Noble (Waterford Lakes)",
+"address":"730 N Alafaya Trail, Orlando, FL 32828",
+"latitude":28.5562,
+"longitude":-81.2087,
+"category":"bookstore",
+"description":"A large bookstore with a cafe and comfortable seating areas. Many students spend long study sessions here thanks to the quiet atmosphere and available Wi-Fi.",
+"hours":null
+},
+{
+"source_key":"manual:ucf-education-library",
+"name":"Curriculum Materials Center (UCF)",
+"address":"12494 University Blvd, Orlando, FL 32816",
+"latitude":28.6015,
+"longitude":-81.1976,
+"category":"library",
+"description":"A quieter library space within UCF that is often overlooked by students. It provides a calm environment for reading, writing, and individual studying.",
+"hours":null
+}
+]

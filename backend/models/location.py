@@ -9,14 +9,27 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, Index, SmallInteger, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
 
 if TYPE_CHECKING:
     from models.checkin import CheckIn
+    from models.comment import Comment
     from models.session import StudySession
     from models.user_location import UserLocation
 
@@ -35,10 +48,31 @@ class Location(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+    source_key: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    comment_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    open_time: Mapped[str | None] = mapped_column(String, nullable=True)
+    close_time: Mapped[str | None] = mapped_column(String, nullable=True)
+    hours: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    price_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    website: Mapped[str | None] = mapped_column(String, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    maps_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    editorial_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    types: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     quiet_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
     has_outlets: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -64,6 +98,11 @@ class Location(Base):
         passive_deletes=True,
     )
     saved_by_users: Mapped[list[UserLocation]] = relationship(
+        back_populates="location",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    comments: Mapped[list[Comment]] = relationship(
         back_populates="location",
         cascade="all, delete-orphan",
         passive_deletes=True,
