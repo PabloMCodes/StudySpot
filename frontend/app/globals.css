@@ -14,25 +14,9 @@ body {
   background-color: #f3ead8;
 }
 
-<<<<<<< HEAD
-.gold-3d-title { 
-  background: linear-gradient(180deg, #fff9c4 0%, #facc15 38%, #f59e0b 62%, #b45309 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  transform: perspective(800px) rotateX(14deg);
-  text-shadow:
-    0 1px 0 #fde68a,
-    0 2px 0 #fcd34d,
-    0 3px 0 #fbbf24,
-    0 4px 0 #f59e0b,
-    0 5px 0 #d97706,
-    0 10px 16px rgba(0, 0, 0, 0.45);
-=======
 .hero-bg {
   background:
     radial-gradient(circle at 85% 12%, rgba(111, 143, 70, 0.3) 0, rgba(111, 143, 70, 0) 36%),
     radial-gradient(circle at 8% 90%, rgba(146, 110, 67, 0.27) 0, rgba(146, 110, 67, 0) 44%),
     linear-gradient(165deg, #efe5d3 0%, #e4d5be 52%, #d7c3a6 100%);
->>>>>>> origin/develop
 }
