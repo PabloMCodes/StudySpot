@@ -22,7 +22,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
@@ -48,6 +48,7 @@ class Location(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+    source_key: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     description_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -59,6 +60,9 @@ class Location(Base):
     )
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    open_time: Mapped[str | None] = mapped_column(String, nullable=True)
+    close_time: Mapped[str | None] = mapped_column(String, nullable=True)
+    hours: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     quiet_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
     has_outlets: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
