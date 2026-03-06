@@ -17,6 +17,7 @@ from database import Base
 
 if TYPE_CHECKING:
     from models.checkin import CheckIn
+    from models.comment import Comment
     from models.follow import Follow
     from models.session import SessionParticipant, StudySession
     from models.user_location import UserLocation
@@ -64,6 +65,11 @@ class User(Base):
         passive_deletes=True,
     )
     saved_locations: Mapped[list[UserLocation]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    comments: Mapped[list[Comment]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

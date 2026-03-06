@@ -13,7 +13,7 @@ class GoogleAuthRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """JWT response payload returned by backend auth endpoints."""
+    """JWT payload shape returned inside the API `data` field."""
 
     access_token: str
     token_type: str = "bearer"

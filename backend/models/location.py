@@ -9,7 +9,19 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, Index, SmallInteger, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,6 +29,7 @@ from database import Base
 
 if TYPE_CHECKING:
     from models.checkin import CheckIn
+    from models.comment import Comment
     from models.session import StudySession
     from models.user_location import UserLocation
 
@@ -37,6 +50,13 @@ class Location(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    comment_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
     latitude: Mapped[float] = mapped_column(Float, nullable=False)
     longitude: Mapped[float] = mapped_column(Float, nullable=False)
     quiet_level: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=3)
@@ -64,6 +84,11 @@ class Location(Base):
         passive_deletes=True,
     )
     saved_by_users: Mapped[list[UserLocation]] = relationship(
+        back_populates="location",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    comments: Mapped[list[Comment]] = relationship(
         back_populates="location",
         cascade="all, delete-orphan",
         passive_deletes=True,
