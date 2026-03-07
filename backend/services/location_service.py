@@ -14,8 +14,8 @@ from models.location import Location
 
 
 def list_locations(db: Session) -> list[Location]:
-    """Return all locations ordered by newest first."""
-    statement = select(Location).order_by(Location.created_at.desc())
+    """Return all locations from the database."""
+    statement = select(Location)
     return list(db.scalars(statement).all())
 
 
