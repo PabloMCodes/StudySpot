@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "StudySpot",
+    "slug": "studyspot",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F2E6"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.studyspot.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F2E6"
+      },
+      "package": "com.studyspot.app"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
