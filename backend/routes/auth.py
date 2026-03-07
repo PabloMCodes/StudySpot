@@ -34,5 +34,4 @@ async def get_current_user_info(current_user = Depends(get_current_user)):
         data = UserPrivateResponse.model_validate(current_user)
         return {"success": True, "data": data, "error": None}
     except Exception:
-        return JSONResponse(status_code=500, content={"success": False, "data": None, "error": "Failed to fetch current user"},
-        )
+        return JSONResponse(status_code=500, content={"success": False, "data": None, "error": "Failed to fetch current user"})
