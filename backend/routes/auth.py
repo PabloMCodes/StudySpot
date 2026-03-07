@@ -22,7 +22,6 @@ def google_auth(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
     try:
         token_data = auth_service.authenticate_google_user(db=db, id_token=payload.id_token)
         return {"success": True, "data": token_data, "error": None}
-
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"success": False, "data": None, "error": " server cannot process due to client-side issues"})
     except Exception:
