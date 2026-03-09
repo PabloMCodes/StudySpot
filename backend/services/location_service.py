@@ -6,16 +6,31 @@ This means location read logic lives here, not in routes.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from models.location import Location
 
+EARTH_RADIUS_METERS = 6_371_000
+
+
+def _distance_meters_expression(lat: float, lng: float):
+    """Return a SQL expression that calculates great-circle distance in meters."""
+    return EARTH_RADIUS_METERS * 2 * func.asin(
+        func.sqrt(
+            func.pow(func.sin((func.radians(Location.latitude) - func.radians(lat)) / 2), 2)
+            + func.cos(func.radians(lat))
+            * func.cos(func.radians(Location.latitude))
+            * func.pow(func.sin((func.radians(Location.longitude) - func.radians(lng)) / 2), 2)
+        )
+    )
+
 
 def list_locations(db: Session) -> list[Location]:
     """Return all locations from the database."""
-    statement = select(Location)
+    statement = select(Location).order_by(Location.name.asc())
     return list(db.scalars(statement).all())
 
 
@@ -25,3 +40,41 @@ def get_location_by_id(db: Session, location_id: uuid.UUID) -> Location:
     if location is None:
         raise ValueError("Location not found")
     return location
+
+
+def list_locations_filtered(
+    db: Session,
+    *,
+    lat: float | None = None,
+    lng: float | None = None,
+    radius_m: float | None = None,
+    sort: Literal["name", "newest", "distance"] = "name",
+    limit: int = 50,
+    offset: int = 0,
+) -> list[Location]:
+    """List locations with optional area filtering, sorting, and pagination."""
+    statement = select(Location)
+    distance_expression = None
+
+    if (lat is None) != (lng is None):
+        raise ValueError("lat and lng must be provided together")
+
+    if lat is not None and lng is not None:
+        distance_expression = _distance_meters_expression(lat, lng)
+
+    if radius_m is not None:
+        if distance_expression is None:
+            raise ValueError("lat and lng are required when radius_m is provided")
+        statement = statement.where(distance_expression <= radius_m)
+
+    if sort == "distance":
+        if distance_expression is None:
+            raise ValueError("lat and lng are required when sort=distance")
+        statement = statement.order_by(distance_expression.asc(), Location.name.asc())
+    elif sort == "newest":
+        statement = statement.order_by(Location.created_at.desc())
+    else:
+        statement = statement.order_by(Location.name.asc())
+
+    statement = statement.offset(offset).limit(limit)
+    return list(db.scalars(statement).all())
