@@ -144,3 +144,7 @@ __pycache__/
 
 # Virtual environment
 .venv/
+
+# Expo local state
+.expo/
+frontend/.expo/

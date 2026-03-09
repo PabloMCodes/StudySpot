@@ -48,6 +48,10 @@ def list_locations_filtered(
     lat: float | None = None,
     lng: float | None = None,
     radius_m: float | None = None,
+    min_lat: float | None = None,
+    max_lat: float | None = None,
+    min_lng: float | None = None,
+    max_lng: float | None = None,
     sort: Literal["name", "newest", "distance"] = "name",
     limit: int = 50,
     offset: int = 0,
@@ -55,9 +59,20 @@ def list_locations_filtered(
     """List locations with optional area filtering, sorting, and pagination."""
     statement = select(Location)
     distance_expression = None
+    has_any_bbox_value = any(value is not None for value in (min_lat, max_lat, min_lng, max_lng))
+    has_all_bbox_values = all(value is not None for value in (min_lat, max_lat, min_lng, max_lng))
 
     if (lat is None) != (lng is None):
         raise ValueError("lat and lng must be provided together")
+    if has_any_bbox_value and not has_all_bbox_values:
+        raise ValueError("min_lat, max_lat, min_lng, and max_lng must be provided together")
+    if has_all_bbox_values:
+        if min_lat > max_lat:
+            raise ValueError("min_lat must be less than or equal to max_lat")
+        if min_lng > max_lng:
+            raise ValueError("min_lng must be less than or equal to max_lng")
+        statement = statement.where(Location.latitude >= min_lat, Location.latitude <= max_lat)
+        statement = statement.where(Location.longitude >= min_lng, Location.longitude <= max_lng)
 
     if lat is not None and lng is not None:
         distance_expression = _distance_meters_expression(lat, lng)
