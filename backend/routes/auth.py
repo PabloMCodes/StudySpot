@@ -17,7 +17,7 @@ from models.user import User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # google ID token for JWT, response standard format
-@router.post("/google")
+@router.post("/login")
 def google_auth(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
     try:
         token_data = auth_service.authenticate_google_user(db=db, id_token=payload.id_token)
