@@ -29,7 +29,7 @@ def create_checkin(
         location = db.get(Location, payload.location_id)
         if location is None:
             return JSONResponse(
-                status_code=404
+                status_code=404,
                 content={"success": False, "data": None, "error": "Location not found"},
             )
         
