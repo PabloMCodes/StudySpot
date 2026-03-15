@@ -1,7 +1,8 @@
-import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { StatusBar } from "expo-status-bar";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  ActivityIndicator,
   Easing,
   KeyboardAvoidingView,
   Platform,
@@ -31,7 +32,8 @@ function OpeningScreen({ onFinish }: { onFinish: () => void }) {
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.delay(1520),
+        //SS: page duration until fade
+        Animated.delay(2000),
       ]),
       Animated.timing(fadeAnim, {
         toValue: 0,
@@ -88,9 +90,32 @@ function LoginScreen() {
   /*
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+<<<<<<< HEAD
   const [isSignupMode, setIsSignupMode] = useState(true);
   */
   const primaryCtaText = useMemo(() => (isSignupMode ? "Sign Up" : "Login"), [isSignupMode]);
+=======
+  const [isSignupMode, setIsSignupMode] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  //Login: Main title text
+  const titleText = useMemo(() => (isSignupMode ? "Create your account" : "Welcome"), [isSignupMode]);
+  const subtitleText = useMemo(
+    () =>
+      isSignupMode
+        ? "Join StudySpot to find and share the best places to focus."
+        : "We Saved You A Spot!", //Login: subtitle text
+    [isSignupMode]
+  );
+  const primaryCtaText = useMemo(() => (isSignupMode ? "Sign Up" : "Sign Up"), [isSignupMode]); //Login: Sign up button text
+  const isValid = email.trim().length > 0 && password.trim().length > 0;
+  const handlePrimaryPress = () => {
+    if (!isValid || loading) return;
+    setLoading(true);
+    setTimeout(() => setLoading(false), 1000);
+  };
+>>>>>>> 43c87ace251eca9272383b1c049a9b2e24e1dc60
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -101,51 +126,90 @@ function LoginScreen() {
       >
         <View style={styles.card}>
           <Text style={styles.brand}>StudySpot</Text>
-          <Text style={styles.title}>Find your best place to focus.</Text>
-          <Text style={styles.subtitle}>
-            StudySpot helps students discover nearby cafes, libraries, and quiet corners based
-            on real check-ins and live activity trends.
-          </Text>
+          <Text style={styles.title}>{titleText}</Text>
+          <Text style={styles.subtitle}>{subtitleText}</Text>
 
           <View style={styles.form}>
             <View>
               <Text style={styles.label}>Email</Text>
-              <TextInput
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                onChangeText={setEmail}
-                placeholder="you@school.edu"
-                placeholderTextColor="#8C7A5A"
-                style={styles.input}
-                value={email}
-              />
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
+                  testID="emailInput"
+                  onChangeText={setEmail}
+                  placeholder="studiousfoo@gmail.com" //Login: email placeholder
+                  placeholderTextColor="#8C7A5A"
+                  style={styles.input}
+                  value={email}
+                />
+              </View>
             </View>
 
             <View>
               <Text style={styles.label}>Password</Text>
-              <TextInput
-                onChangeText={setPassword}
-                placeholder="Create a password"
-                placeholderTextColor="#8C7A5A"
-                secureTextEntry
-                style={styles.input}
-                value={password}
-              />
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  onChangeText={setPassword}
+                  placeholder={isSignupMode ? "Create a password" : "studiousfoo123*"} //Login: PW placeholder
+                  placeholderTextColor="#8C7A5A"
+                  secureTextEntry={!showPassword}
+                  textContentType={isSignupMode ? "newPassword" : "password"}
+                  testID="passwordInput"
+                  style={styles.input}
+                  value={password}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.inputRightAction}
+                >
+                  <Text style={styles.linkText}>{showPassword ? "Hide" : "Show"}</Text>
+                </Pressable>
+              </View>
             </View>
 
-            <Pressable style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>{primaryCtaText}</Text>
+            <Pressable
+              style={[styles.primaryButton, (!isValid || loading) && styles.primaryButtonDisabled]}
+              disabled={!isValid || loading}
+              onPress={handlePrimaryPress}
+              accessibilityRole="button"
+              testID="primaryCta"
+            >
+              {loading ? (
+                <ActivityIndicator color="#FDFBF4" />
+              ) : (
+                <Text style={styles.primaryButtonText}>{primaryCtaText}</Text>
+              )}
             </Pressable>
+
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <Pressable style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>Log In with Google</Text>
+            </Pressable>
+
+            <Text style={styles.termsText}>
+              By continuing, you agree to our Terms and Privacy Policy.
+            </Text>
           </View>
 
-          <Pressable onPress={() => setIsSignupMode((value) => !value)} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>
-              {isSignupMode ? "I already have an account (Login)" : "I need an account (Sign Up)"}
-            </Text>
-          </Pressable>
         </View>
       </KeyboardAvoidingView>
+      <View pointerEvents="none" style={styles.spotField}>
+        <View style={[styles.spotBlob, styles.spotBlobLeft]} />
+        <View style={[styles.spotBlob, styles.spotBlobRight]} />
+        <View style={[styles.spotBlob, styles.spotBlobFar]} />
+        <View style={[styles.spotBubble, styles.spotBubbleOne]} />
+        <View style={[styles.spotBubble, styles.spotBubbleTwo]} />
+        <View style={[styles.spotBubble, styles.spotBubbleThree]} />
+      </View>
     </SafeAreaView>
   );
 }
@@ -167,50 +231,53 @@ const styles = StyleSheet.create({
   appShell: {
     flex: 1,
   },
+
+  // Login page background color
   safeArea: {
     flex: 1,
-    backgroundColor: "#F4EEDC",
+    backgroundColor: "#f1e4d8",
   },
   openingScreen: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
-    backgroundColor: "#F1E6D0",
+    backgroundColor: "#f1e4d8", //SS: main background color
   },
+
   openingGlowLarge: {
     position: "absolute",
     width: 340,
     height: 340,
     borderRadius: 170,
-    backgroundColor: "#588764",
+    backgroundColor: "#588764",  //SS: top right circle color
     top: -40,
     right: -70,
-    opacity: 0.2,
+    opacity: 0.35, 
+    //SS: top right circle opacity
+    // 0 = background color
+    //0 < closer to true color
   },
   openingGlowSmall: {
     position: "absolute",
     width: 240,
     height: 240,
     borderRadius: 120,
-    backgroundColor: "#966443",
+    backgroundColor: "#966443", //SS: lower left circle color
     bottom: -55,
     left: -60,
-    opacity: 0.18,
+    opacity: 0.4, 
+    //SS: lower left circle opacity
   },
   openingCard: {
     minWidth: 260,
     alignItems: "center",
     borderRadius: 28,
     borderWidth: 1,
-    borderColor: "rgba(90, 107, 58, 0.22)",
-    backgroundColor: "rgba(255, 251, 242, 0.9)",
+    borderColor: "rgba(94, 140, 97, 0.22)",
+    backgroundColor: "#FDFBF4",
     paddingHorizontal: 28,
     paddingVertical: 30,
-    shadowColor: "#5A6B3A",
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
     elevation: 4,
   },
   openingOverline: {
@@ -218,7 +285,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 2.4,
     textTransform: "uppercase",
-    color: "#7A5630",
+    color: "#334226", //SS: mini title text color
   },
   openingBrand: {
     marginTop: 12,
@@ -226,86 +293,221 @@ const styles = StyleSheet.create({
     lineHeight: 42,
     fontWeight: "800",
     letterSpacing: 0.6,
-    color: "#2F261A",
+    color: "#588764", //SS: main title text color
   },
   screen: {
     flex: 1,
-    justifyContent: "center",
+    justifyContent: "flex-start",
     paddingHorizontal: 16,
-    paddingVertical: 24,
+    paddingVertical: 12,
+    paddingTop: 75, 
+    //Login: ALL text spacing from top of screen
+    //1 = closest to top of screen 
+    //100+ = farther down vertically from screen
   },
   card: {
     width: "100%",
-    maxWidth: 420,
+    maxWidth: 360,
     alignSelf: "center",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(90, 107, 58, 0.35)",
-    backgroundColor: "rgba(247, 242, 230, 0.92)",
-    paddingHorizontal: 24,
-    paddingVertical: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
   brand: {
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 2,
     textTransform: "uppercase",
-    color: "#5A6B3A",
+    //Login: STUDYSPOT text color
+    color: "#334226", //dark green P2
   },
   title: {
-    marginTop: 12,
-    fontSize: 34,
-    lineHeight: 40,
+    marginTop: 6,
+    fontSize: 30,
+    lineHeight: 36,
     fontWeight: "700",
-    color: "#2F261A",
+    //Login: Title text color 
+    color: "#588764", //light green P2
+    textAlign: "center",
   },
   subtitle: {
-    marginTop: 12,
+    marginTop: 4,
     fontSize: 14,
     lineHeight: 20,
-    color: "#4A4030",
+    //Login: subtitle text color
+    color: "#334226", //dark green P2
+    textAlign: "center",
+    opacity: 0.9,
   },
   form: {
-    marginTop: 24,
-    gap: 14,
+    marginTop: 18,
+    gap: 10,
   },
+  //Login: Email / PW text color
   label: {
     marginBottom: 6,
     fontSize: 14,
     fontWeight: "600",
-    color: "#3E3426",
+    color: "#334226", //dark green P2
+  },
+  inputWrapper: {
+    position: "relative",
   },
   input: {
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#B6A27D",
     backgroundColor: "#FFFDF7",
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
     color: "#2F261A",
     fontSize: 15,
   },
+  inputRightAction: {
+    position: "absolute",
+    right: 12,
+    top: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
   primaryButton: {
-    marginTop: 4,
+    marginTop: 10,
     borderRadius: 12,
-    backgroundColor: "#5C7A35",
+    borderWidth: 1,
+    borderColor: "#334226",
+    backgroundColor: "#588764", //Login: Sign up button color
     paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingVertical: 12,
     alignItems: "center",
+  },
+  primaryButtonDisabled: {
+    opacity: 0.6,
   },
   primaryButtonText: {
     fontSize: 15,
     fontWeight: "700",
     color: "#FDFBF4",
   },
+  linkText: {
+    color: "#4f4b3b",
+    fontWeight: "700",
+  },
+  linkRight: {
+    alignSelf: "flex-end",
+    marginTop: 6,
+  },
+  linkRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
+  mutedText: {
+    color: "#3E3426",
+    opacity: 0.7,
+  },
+  dividerRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#B6A27D",
+    opacity: 0.6,
+  },
+  dividerText: {
+    color: "#3E3426",
+    opacity: 0.7,
+    paddingHorizontal: 6,
+    fontWeight: "600",
+  },
   secondaryButton: {
-    marginTop: 18,
+    marginTop: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#588764",
+    backgroundColor: "#FDFBF4",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     alignItems: "center",
   },
   secondaryButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#5A6B3A",
-    textDecorationLine: "underline",
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#588764",
+  },
+  termsText: {
+    marginTop: 8,
+    textAlign: "center",
+    color: "#3E3426",
+    opacity: 0.65,
+    fontSize: 11,
+  },
+  spotField: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 170,
+  },
+  spotBlob: {
+    position: "absolute",
+    borderRadius: 999,
+    opacity: 0.22,
+  },
+
+  //Login: large spot colors
+  spotBlobLeft: {
+    width: 220,
+    height: 220,
+    left: -60,
+    bottom: -120,
+    backgroundColor: "#B6A27D",
+  },
+  spotBlobRight: {
+    width: 280,
+    height: 280,
+    right: -110,
+    bottom: -150,
+    backgroundColor: "#588764",
+  },
+  
+  spotBlobFar: {
+    width: 240,
+    height: 240,
+    right: 60,
+    bottom: -170,
+    backgroundColor: "#4f4b3b",
+    opacity: 0.18,
+  },
+
+  //Login: mini spot colors
+  spotBubble: {
+    position: "absolute",
+    borderRadius: 999,
+    opacity: 0.7,
+  },
+  spotBubbleOne: {
+    width: 44,
+    height: 44,
+    left: 34,
+    bottom: 38,
+    backgroundColor: "#334226",
+  },
+  spotBubbleTwo: {
+    width: 28,
+    height: 28,
+    left: 120,
+    bottom: 62,
+    backgroundColor: "#588764",
+  },
+  spotBubbleThree: {
+    width: 36,
+    height: 36,
+    right: 56,
+    bottom: 46,
+    backgroundColor: "#966443",
   },
 });
