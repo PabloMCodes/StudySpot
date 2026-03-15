@@ -1,11 +1,11 @@
 import { apiRequest, type ApiResponse } from "./api";
 
 export interface LoginPayload {
-  idToken: string;
+  idToken: string; // this needs to change, due to the fact that we are recieving this from the frontend
 }
-
+// export from the backend
 export interface AuthTokenResponse {
-  accessToken: string;
+  access_token: string;
   tokenType: "bearer";
 }
 
