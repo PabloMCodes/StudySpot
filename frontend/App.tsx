@@ -12,8 +12,11 @@ import {
   TextInput,
   View,
 } from "react-native";
-
-import { AuthProvider } from "./context/AuthContext";
+// use for authentication context
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+import { login } from "./services/authService";
+import { useAuth } from "./context/AuthContext";
 
 function OpeningScreen({ onFinish }: { onFinish: () => void }) {
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -62,10 +65,31 @@ function OpeningScreen({ onFinish }: { onFinish: () => void }) {
 }
 
 function LoginScreen() {
+  const {setAccessToken} = useAuth();
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    clientid: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID, });
+
+  useEffect(() => {
+    if (response?.type === "success") {
+
+      const idToken = response.authentication.idToken;
+      if (idToken) {
+        login({ idToken }).then((res) => {
+          if (res.success && res.data) {
+            setAccessToken(res.data.access_token);
+          }
+        });
+      }
+    }
+  }, [response, setAccessToken]);
+
+  
+
+  /*
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignupMode, setIsSignupMode] = useState(true);
-
+  */
   const primaryCtaText = useMemo(() => (isSignupMode ? "Sign Up" : "Login"), [isSignupMode]);
 
   return (
