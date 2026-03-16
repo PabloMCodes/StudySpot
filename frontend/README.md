@@ -33,3 +33,16 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 Notes:
 - iOS simulator can usually use `http://localhost:8000`
 - Android emulator typically needs `http://10.0.2.2:8000`
+
+## Map provider scaffold
+
+The post-login home screen is now map-first and uses a map provider switch:
+
+- `EXPO_PUBLIC_MAP_PROVIDER=fallback` (default) keeps the app fully usable in Expo Go.
+- `EXPO_PUBLIC_MAP_PROVIDER=mapbox` enables the Mapbox path, which currently falls back to list mode until Mapbox rendering is wired.
+
+Recommended team workflow:
+
+1. Everyone keeps using Expo Go with `fallback`.
+2. Mapbox feature work happens in a development build branch/path.
+3. Once Mapbox is ready, only the Mapbox component implementation needs to change, not the app shell or auth flow.

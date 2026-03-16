@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "expo start",
     "start": "expo start",
-    "start:tunnel": "expo start --tunnel -c",
+    "start:tunnel": "npx expo start --tunnel -c",
     "ios": "expo start --ios",
     "android": "expo start --android",
     "web": "expo start --web",
