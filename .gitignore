@@ -148,3 +148,8 @@ __pycache__/
 # Expo local state
 .expo/
 frontend/.expo/
+frontend/.expo/devices.json
+
+# Expo generated native projects (kept local for now)
+frontend/ios/
+frontend/android/
