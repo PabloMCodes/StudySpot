@@ -62,6 +62,11 @@ SEARCH_CENTERS = [
     {"name": "Oviedo", "lat": 28.6716, "lng": -81.2081},
     {"name": "Winter Park", "lat": 28.6003, "lng": -81.3392},
     {"name": "Downtown Orlando", "lat": 28.5383, "lng": -81.3792},
+    {"name": "Lake Nona", "lat": 28.3852, "lng": -81.2442},
+    {"name": "Baldwin Park", "lat": 28.5696, "lng": -81.3276},
+    {"name": "College Park", "lat": 28.5722, "lng": -81.3896},
+    {"name": "Mills 50", "lat": 28.5630, "lng": -81.3644},
+    {"name": "Dr. Phillips", "lat": 28.4656, "lng": -81.4932},
 ]
 
 # chains to skip

@@ -34,6 +34,7 @@ export function MapboxPlaceholder({
   onRetry,
 }: MapboxPlaceholderProps) {
   const cameraRef = useRef<Camera>(null);
+  const shapeSourceRef = useRef<any>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [filters, setFilters] = useState<LocationFilters>(DEFAULT_FILTERS);
@@ -43,6 +44,8 @@ export function MapboxPlaceholder({
   const [lastFetchedBounds, setLastFetchedBounds] = useState<LocationBounds | null>(null);
 
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
+  const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
+  const styleURL = configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street;
 
   useEffect(() => {
     setViewportLocations(locations);
@@ -117,6 +120,26 @@ export function MapboxPlaceholder({
     [filteredLocations, selectedLocationId],
   );
 
+  const locationFeatureCollection = useMemo<GeoJSON.FeatureCollection>(
+    () => ({
+      type: "FeatureCollection",
+      features: filteredLocations.map((location) => ({
+        type: "Feature",
+        id: location.id,
+        properties: {
+          locationId: location.id,
+          name: location.name,
+          address: location.address ?? "",
+        },
+        geometry: {
+          type: "Point",
+          coordinates: [location.longitude, location.latitude],
+        },
+      })),
+    }),
+    [filteredLocations],
+  );
+
   useEffect(() => {
     let isActive = true;
 
@@ -157,6 +180,48 @@ export function MapboxPlaceholder({
     });
   }, [selectedLocation]);
 
+  const onShapePress = useCallback(async (event: any) => {
+    const feature = event?.features?.[0];
+    if (!feature) {
+      return;
+    }
+
+    const isCluster = Boolean(feature.properties?.cluster);
+    const coordinates = feature.geometry?.coordinates;
+
+    if (!Array.isArray(coordinates) || coordinates.length < 2 || !cameraRef.current) {
+      return;
+    }
+
+    if (isCluster) {
+      try {
+        const nextZoom = shapeSourceRef.current
+          ? await shapeSourceRef.current.getClusterExpansionZoom(feature)
+          : 12;
+
+        cameraRef.current.setCamera({
+          centerCoordinate: [coordinates[0], coordinates[1]],
+          zoomLevel: Math.min(Number(nextZoom) + 0.2, 16),
+          animationDuration: 280,
+          animationMode: "easeTo",
+        });
+      } catch {
+        cameraRef.current.setCamera({
+          centerCoordinate: [coordinates[0], coordinates[1]],
+          zoomLevel: 12.5,
+          animationDuration: 280,
+          animationMode: "easeTo",
+        });
+      }
+      return;
+    }
+
+    const locationId = feature.properties?.locationId;
+    if (typeof locationId === "string") {
+      setSelectedLocationId(locationId);
+    }
+  }, []);
+
   const combinedError = viewportError ?? error;
   const mapIsLoading = loading || viewportLoading;
 
@@ -179,7 +244,7 @@ export function MapboxPlaceholder({
       <Mapbox.MapView
         onMapIdle={onMapIdle}
         style={styles.map}
-        styleURL={Mapbox.StyleURL.Street}
+        styleURL={styleURL}
       >
         <Mapbox.Camera
           ref={cameraRef}
@@ -188,17 +253,74 @@ export function MapboxPlaceholder({
             zoomLevel: 10,
           }}
         />
-
-        {filteredLocations.map((location) => (
-          <Mapbox.PointAnnotation
-            coordinate={[location.longitude, location.latitude]}
-            id={location.id}
-            key={location.id}
-            onSelected={() => setSelectedLocationId(location.id)}
-          >
-            <View style={styles.pinDot} />
-          </Mapbox.PointAnnotation>
-        ))}
+        <Mapbox.ShapeSource
+          cluster
+          clusterMaxZoomLevel={11}
+          clusterRadius={34}
+          hitbox={{ width: 28, height: 28 }}
+          id="locations-shape-source"
+          onPress={onShapePress}
+          ref={shapeSourceRef}
+          shape={locationFeatureCollection}
+        >
+          <Mapbox.CircleLayer
+            id="locations-cluster-circle"
+            filter={["has", "point_count"]}
+            style={{
+              circleColor: "#334226",
+              circleRadius: [
+                "step",
+                ["get", "point_count"],
+                14,
+                20,
+                17,
+                40,
+                20,
+              ],
+              circleOpacity: 0.9,
+              circleStrokeColor: "#fdfbf4",
+              circleStrokeWidth: 2,
+            }}
+          />
+          <Mapbox.SymbolLayer
+            id="locations-cluster-count"
+            filter={["has", "point_count"]}
+            style={{
+              textField: ["get", "point_count_abbreviated"],
+              textColor: "#fdfbf4",
+              textSize: 12,
+              textFont: ["Open Sans Bold"],
+              textAllowOverlap: true,
+              textIgnorePlacement: true,
+            }}
+          />
+          <Mapbox.CircleLayer
+            id="locations-point-circle"
+            filter={["!", ["has", "point_count"]]}
+            style={{
+              circleColor: "#334226",
+              circleRadius: 8,
+              circleOpacity: 0.95,
+              circleStrokeColor: "#ffffff",
+              circleStrokeWidth: 2,
+            }}
+          />
+          <Mapbox.CircleLayer
+            id="locations-point-selected"
+            filter={[
+              "all",
+              ["!", ["has", "point_count"]],
+              ["==", ["get", "locationId"], selectedLocationId ?? "__none__"],
+            ]}
+            style={{
+              circleColor: "#8f4c2f",
+              circleRadius: 10,
+              circleOpacity: 1,
+              circleStrokeColor: "#ffffff",
+              circleStrokeWidth: 2,
+            }}
+          />
+        </Mapbox.ShapeSource>
       </Mapbox.MapView>
 
       <View style={styles.banner}>
@@ -299,9 +421,12 @@ export function MapboxPlaceholder({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#ffffff",
   },
   map: {
     flex: 1,
+    marginTop: 14,
+    marginBottom: 18,
   },
   banner: {
     position: "absolute",
@@ -427,14 +552,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#334226",
-  },
-  pinDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: "#fff",
-    backgroundColor: "#334226",
   },
   selectionCard: {
     position: "absolute",

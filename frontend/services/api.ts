@@ -8,28 +8,46 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
   "http://localhost:8000";
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<ApiResponse<T>> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  const payload = (await response.json()) as ApiResponse<T>;
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
 
-  if (!response.ok) {
+    const payload = (await response.json()) as ApiResponse<T>;
+
+    if (!response.ok) {
+      return {
+        success: false,
+        data: null,
+        error: payload.error ?? "Request failed",
+      };
+    }
+
+    return payload;
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === "AbortError";
     return {
       success: false,
       data: null,
-      error: payload.error ?? "Request failed",
+      error: isAbort
+        ? "Request timed out. Check EXPO_PUBLIC_API_URL and backend status."
+        : "Network request failed",
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return payload;
 }
