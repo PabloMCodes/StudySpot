@@ -1,8 +1,17 @@
-import Mapbox from "@rnmapbox/maps";
-import React, { useEffect, useMemo, useState } from "react";
+import Mapbox, { type MapState } from "@rnmapbox/maps";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { Location } from "../../types/location";
+import {
+  applyLocationFilters,
+  isLocationOpenNow,
+} from "../../services/locationFilterService";
+import { getLocationsInBounds } from "../../services/locationService";
+import {
+  boundsFromCameraState,
+  didBoundsChange,
+} from "../../services/locationViewportService";
+import type { Location, LocationBounds, LocationFilters } from "../../types/location";
 import { MapFallback } from "./MapFallback";
 
 interface MapboxPlaceholderProps {
@@ -12,6 +21,12 @@ interface MapboxPlaceholderProps {
   onRetry: () => void;
 }
 
+const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
+const DEFAULT_FILTERS: LocationFilters = {
+  openNow: false,
+  minQuietLevel: null,
+};
+
 export function MapboxPlaceholder({
   locations,
   loading,
@@ -20,39 +35,99 @@ export function MapboxPlaceholder({
 }: MapboxPlaceholderProps) {
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<LocationFilters>(DEFAULT_FILTERS);
+  const [viewportLocations, setViewportLocations] = useState<Location[]>(locations);
+  const [viewportLoading, setViewportLoading] = useState(false);
+  const [viewportError, setViewportError] = useState<string | null>(null);
+  const [lastFetchedBounds, setLastFetchedBounds] = useState<LocationBounds | null>(null);
+
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
+
+  useEffect(() => {
+    setViewportLocations(locations);
+  }, [locations]);
+
+  useEffect(() => {
+    if (!selectedLocationId) {
+      return;
+    }
+
+    if (!viewportLocations.some((location) => location.id === selectedLocationId)) {
+      setSelectedLocationId(null);
+    }
+  }, [selectedLocationId, viewportLocations]);
+
+  const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
+    setViewportLoading(true);
+    setViewportError(null);
+
+    try {
+      const response = await getLocationsInBounds(bounds, { limit: 200, sort: "name" });
+
+      if (!response.success || !response.data) {
+        setViewportError(response.error ?? "Failed to load viewport locations");
+        return;
+      }
+
+      setViewportLocations(response.data);
+    } catch {
+      setViewportError("Failed to load viewport locations");
+    } finally {
+      setViewportLoading(false);
+    }
+  }, []);
+
+  const onMapIdle = useCallback(
+    (state: MapState) => {
+      const bounds = boundsFromCameraState(state);
+      if (!bounds) {
+        return;
+      }
+
+      if (!didBoundsChange(lastFetchedBounds, bounds)) {
+        return;
+      }
+
+      setLastFetchedBounds(bounds);
+      void fetchLocationsForBounds(bounds);
+    },
+    [fetchLocationsForBounds, lastFetchedBounds],
+  );
 
   const validLocations = useMemo(
     () =>
-      locations.filter(
+      viewportLocations.filter(
         (location) =>
           Number.isFinite(location.latitude) &&
           Number.isFinite(location.longitude) &&
           Math.abs(location.latitude) <= 90 &&
           Math.abs(location.longitude) <= 180,
       ),
-    [locations],
+    [viewportLocations],
+  );
+
+  const filteredLocations = useMemo(
+    () => applyLocationFilters(validLocations, filters),
+    [filters, validLocations],
+  );
+
+  const selectedLocation = useMemo(
+    () => filteredLocations.find((location) => location.id === selectedLocationId) ?? null,
+    [filteredLocations, selectedLocationId],
   );
 
   const centerCoordinate = useMemo<[number, number]>(() => {
-    if (validLocations.length === 0) {
-      // UCF/Orlando default center until we have API data.
-      return [-81.2001, 28.6024];
+    if (selectedLocation) {
+      return [selectedLocation.longitude, selectedLocation.latitude];
     }
 
-    if (!selectedLocationId) {
-      const first = validLocations[0];
+    if (filteredLocations.length > 0) {
+      const first = filteredLocations[0];
       return [first.longitude, first.latitude];
     }
 
-    const selected = validLocations.find((location) => location.id === selectedLocationId);
-    if (!selected) {
-      const first = validLocations[0];
-      return [first.longitude, first.latitude];
-    }
-
-    return [selected.longitude, selected.latitude];
-  }, [selectedLocationId, validLocations]);
+    return DEFAULT_CENTER;
+  }, [filteredLocations, selectedLocation]);
 
   useEffect(() => {
     let isActive = true;
@@ -81,6 +156,9 @@ export function MapboxPlaceholder({
     };
   }, [accessToken]);
 
+  const combinedError = viewportError ?? error;
+  const mapIsLoading = loading || viewportLoading;
+
   if (mapboxInitError) {
     return (
       <View style={styles.container}>
@@ -89,7 +167,7 @@ export function MapboxPlaceholder({
           <Text style={styles.bannerText}>{mapboxInitError}</Text>
         </View>
         <View style={styles.fallbackContainer}>
-          <MapFallback error={error} loading={loading} locations={locations} onRetry={onRetry} />
+          <MapFallback error={combinedError} loading={mapIsLoading} locations={locations} onRetry={onRetry} />
         </View>
       </View>
     );
@@ -97,15 +175,19 @@ export function MapboxPlaceholder({
 
   return (
     <View style={styles.container}>
-      <Mapbox.MapView style={styles.map} styleURL={Mapbox.StyleURL.Street}>
+      <Mapbox.MapView
+        onMapIdle={onMapIdle}
+        style={styles.map}
+        styleURL={Mapbox.StyleURL.Street}
+      >
         <Mapbox.Camera
-          animationDuration={500}
+          animationDuration={450}
           animationMode="easeTo"
           centerCoordinate={centerCoordinate}
-          zoomLevel={validLocations.length > 0 ? 11 : 10}
+          zoomLevel={filteredLocations.length > 0 ? 11 : 10}
         />
 
-        {validLocations.map((location) => (
+        {filteredLocations.map((location) => (
           <Mapbox.PointAnnotation
             coordinate={[location.longitude, location.latitude]}
             id={location.id}
@@ -117,50 +199,95 @@ export function MapboxPlaceholder({
         ))}
       </Mapbox.MapView>
 
-      {loading ? (
+      <View style={styles.banner}>
+        <Text style={styles.bannerTitle}>Mapbox live</Text>
+        <Text style={styles.bannerText}>
+          Showing {filteredLocations.length} spots in this map area. Pan map to fetch new bounds.
+        </Text>
+      </View>
+
+      <View style={styles.filterBar}>
+        <Pressable
+          onPress={() => setFilters((prev) => ({ ...prev, openNow: !prev.openNow }))}
+          style={[styles.filterChip, filters.openNow && styles.filterChipActive]}
+        >
+          <Text style={[styles.filterChipText, filters.openNow && styles.filterChipTextActive]}>
+            Open Now
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() =>
+            setFilters((prev) => {
+              const nextQuiet = prev.minQuietLevel === 4 ? null : prev.minQuietLevel === 3 ? 4 : 3;
+              return { ...prev, minQuietLevel: nextQuiet };
+            })
+          }
+          style={[styles.filterChip, Boolean(filters.minQuietLevel) && styles.filterChipActive]}
+        >
+          <Text
+            style={[
+              styles.filterChipText,
+              Boolean(filters.minQuietLevel) && styles.filterChipTextActive,
+            ]}
+          >
+            {filters.minQuietLevel ? `Quiet ${filters.minQuietLevel}+` : "Quiet Any"}
+          </Text>
+        </Pressable>
+
+        {(filters.openNow || filters.minQuietLevel) ? (
+          <Pressable
+            onPress={() => setFilters(DEFAULT_FILTERS)}
+            style={[styles.filterChip, styles.filterChipReset]}
+          >
+            <Text style={styles.filterChipText}>Reset</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {mapIsLoading ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#334226" />
           <Text style={styles.loadingText}>Loading study spots...</Text>
         </View>
       ) : null}
 
-      <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Mapbox live</Text>
-        <Text style={styles.bannerText}>
-          Pins loaded: {validLocations.length}. Tap a pin to center and inspect nearby spots.
-        </Text>
-      </View>
-
-      {error ? (
+      {combinedError ? (
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>Could not refresh locations</Text>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{combinedError}</Text>
           <Pressable onPress={onRetry} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Try Again</Text>
           </Pressable>
         </View>
       ) : null}
 
-      {selectedLocationId ? (
-        <View style={styles.selectionCard}>
-          <Text style={styles.selectionTitle}>
-            {validLocations.find((location) => location.id === selectedLocationId)?.name ??
-              "Selected location"}
-          </Text>
-          <Text style={styles.selectionSubtitle}>
-            {validLocations.find((location) => location.id === selectedLocationId)?.address ??
-              "Address not available"}
-          </Text>
+      {!mapIsLoading && !combinedError && filteredLocations.length === 0 ? (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorTitle}>No locations match these filters</Text>
+          <Text style={styles.errorText}>Try widening the map or resetting filters.</Text>
+          <Pressable onPress={() => setFilters(DEFAULT_FILTERS)} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Reset Filters</Text>
+          </Pressable>
         </View>
       ) : null}
 
-      {!loading && !error && validLocations.length === 0 ? (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>No locations to display</Text>
-          <Text style={styles.errorText}>Backend returned an empty list.</Text>
-          <Pressable onPress={onRetry} style={styles.retryButton}>
-            <Text style={styles.retryButtonText}>Reload</Text>
-          </Pressable>
+      {selectedLocation ? (
+        <View style={styles.selectionCard}>
+          <Text style={styles.selectionTitle}>{selectedLocation.name}</Text>
+          <Text style={styles.selectionSubtitle}>
+            {selectedLocation.address ?? "Address not available"}
+          </Text>
+          <Text style={styles.selectionMeta}>
+            Quiet {selectedLocation.quiet_level}/5 • {selectedLocation.has_outlets ? "Outlets" : "No outlet data"}
+          </Text>
+          {filters.openNow ? (
+            <Text style={styles.selectionMeta}>
+              {isLocationOpenNow(selectedLocation, new Date()) === false
+                ? "Closed now"
+                : "Open now or hours unavailable"}
+            </Text>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -177,8 +304,7 @@ const styles = StyleSheet.create({
   banner: {
     position: "absolute",
     marginHorizontal: 16,
-    marginTop: 8,
-    top: 0,
+    top: 8,
     left: 0,
     right: 0,
     borderRadius: 12,
@@ -213,9 +339,40 @@ const styles = StyleSheet.create({
   fallbackContainer: {
     flex: 1,
   },
+  filterBar: {
+    position: "absolute",
+    top: 78,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+  },
+  filterChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#b8aa8e",
+    backgroundColor: "rgba(253, 251, 244, 0.95)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  filterChipActive: {
+    borderColor: "#334226",
+    backgroundColor: "#334226",
+  },
+  filterChipReset: {
+    borderColor: "#8f856f",
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4a4a3d",
+  },
+  filterChipTextActive: {
+    color: "#fdfbf4",
+  },
   loadingOverlay: {
     position: "absolute",
-    top: 84,
+    top: 120,
     alignSelf: "center",
     borderRadius: 12,
     borderWidth: 1,
@@ -298,5 +455,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     color: "#5d614e",
+  },
+  selectionMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    color: "#5d614e",
+    fontWeight: "600",
   },
 });

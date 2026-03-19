@@ -1,5 +1,17 @@
 export type LocationSort = "name" | "newest" | "distance";
 
+export interface LocationBounds {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+}
+
+export interface LocationFilters {
+  openNow: boolean;
+  minQuietLevel: number | null;
+}
+
 export interface GetLocationsParams {
   lat?: number;
   lng?: number;
