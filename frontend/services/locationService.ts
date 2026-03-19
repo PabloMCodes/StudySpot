@@ -32,7 +32,7 @@ export function getLocationsInBounds(
     min_lng: bounds.minLng,
     max_lng: bounds.maxLng,
     sort: options?.sort ?? "name",
-    limit: options?.limit ?? 150,
+    limit: options?.limit ?? 100,
     offset: options?.offset ?? 0,
   });
 }

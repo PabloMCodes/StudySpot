@@ -1,5 +1,5 @@
-import Mapbox, { type MapState } from "@rnmapbox/maps";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Mapbox, { type Camera, type MapState } from "@rnmapbox/maps";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
@@ -33,6 +33,7 @@ export function MapboxPlaceholder({
   error,
   onRetry,
 }: MapboxPlaceholderProps) {
+  const cameraRef = useRef<Camera>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [filters, setFilters] = useState<LocationFilters>(DEFAULT_FILTERS);
@@ -62,7 +63,7 @@ export function MapboxPlaceholder({
     setViewportError(null);
 
     try {
-      const response = await getLocationsInBounds(bounds, { limit: 200, sort: "name" });
+      const response = await getLocationsInBounds(bounds, { limit: 100, sort: "name" });
 
       if (!response.success || !response.data) {
         setViewportError(response.error ?? "Failed to load viewport locations");
@@ -116,19 +117,6 @@ export function MapboxPlaceholder({
     [filteredLocations, selectedLocationId],
   );
 
-  const centerCoordinate = useMemo<[number, number]>(() => {
-    if (selectedLocation) {
-      return [selectedLocation.longitude, selectedLocation.latitude];
-    }
-
-    if (filteredLocations.length > 0) {
-      const first = filteredLocations[0];
-      return [first.longitude, first.latitude];
-    }
-
-    return DEFAULT_CENTER;
-  }, [filteredLocations, selectedLocation]);
-
   useEffect(() => {
     let isActive = true;
 
@@ -156,6 +144,19 @@ export function MapboxPlaceholder({
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    if (!selectedLocation || !cameraRef.current) {
+      return;
+    }
+
+    cameraRef.current.setCamera({
+      centerCoordinate: [selectedLocation.longitude, selectedLocation.latitude],
+      zoomLevel: 13,
+      animationDuration: 350,
+      animationMode: "easeTo",
+    });
+  }, [selectedLocation]);
+
   const combinedError = viewportError ?? error;
   const mapIsLoading = loading || viewportLoading;
 
@@ -181,10 +182,11 @@ export function MapboxPlaceholder({
         styleURL={Mapbox.StyleURL.Street}
       >
         <Mapbox.Camera
-          animationDuration={450}
-          animationMode="easeTo"
-          centerCoordinate={centerCoordinate}
-          zoomLevel={filteredLocations.length > 0 ? 11 : 10}
+          ref={cameraRef}
+          defaultSettings={{
+            centerCoordinate: DEFAULT_CENTER,
+            zoomLevel: 10,
+          }}
         />
 
         {filteredLocations.map((location) => (
