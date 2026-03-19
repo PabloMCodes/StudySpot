@@ -19,15 +19,19 @@ BASE_BACKOFF_SECONDS = 1.5
 PAGE_TOKEN_DELAY_SECONDS = 2.0
 DETAILS_DELAY_SECONDS = 0.05
 
-# primary place types
-PLACE_TYPES = [
+# primary place types (best signal for StudySpot)
+PRIMARY_PLACE_TYPES = [
     "cafe",
     "bakery",
-    "library",
-    "book_store"
 ]
 
-# keyword expansion
+# lower-priority expansion types
+SECONDARY_PLACE_TYPES = [
+    "library",
+    "book_store",
+]
+
+# keyword expansion (prioritized toward target spots)
 KEYWORDS = [
     "coffee",
     "coffee shop",
@@ -39,14 +43,17 @@ KEYWORDS = [
     "study cafe"
 ]
 
-# text search expansion
+# text search expansion (run first so budget goes to highest-signal results)
 TEXT_SEARCH_QUERIES = [
     "coffee shop Orlando",
+    "coffee roasters Orlando",
+    "specialty coffee Orlando",
     "boba Orlando",
     "bubble tea Orlando",
     "matcha cafe Orlando",
     "independent coffee Orlando",
-    "dessert cafe Orlando"
+    "dessert cafe Orlando",
+    "dessert shop Orlando",
 ]
 
 SEARCH_CENTERS = [
@@ -403,6 +410,24 @@ if not API_KEY:
     raise RuntimeError("GOOGLE_PLACES_API_KEY is not set in the environment.")
 
 try:
+    print("\nRunning prioritized text search expansion...")
+
+    for query in TEXT_SEARCH_QUERIES:
+        if reached_max_locations():
+            break
+
+        data = text_search(query)
+
+        for result in data.get("results", []):
+            if reached_max_locations():
+                break
+
+            place_id = result.get("place_id")
+
+            if place_id and place_id not in seen_place_ids:
+                seen_place_ids.add(place_id)
+                insert_place(place_id, name_hint=result.get("name"))
+
     for center in SEARCH_CENTERS:
 
         if reached_max_locations():
@@ -416,7 +441,7 @@ try:
             if reached_max_locations():
                 break
 
-            for place_type in PLACE_TYPES:
+            for place_type in PRIMARY_PLACE_TYPES:
                 if reached_max_locations():
                     break
 
@@ -465,25 +490,38 @@ try:
                         seen_place_ids.add(place_id)
                         insert_place(place_id, name_hint=result.get("name"))
 
-
-    if not reached_max_locations():
-        print("\nRunning text search expansion...")
-
-        for query in TEXT_SEARCH_QUERIES:
             if reached_max_locations():
                 break
 
-            data = text_search(query)
-
-            for result in data.get("results", []):
+            # Fill remaining capacity with secondary categories.
+            for place_type in SECONDARY_PLACE_TYPES:
                 if reached_max_locations():
                     break
 
-                place_id = result.get("place_id")
+                data = nearby_search(lat, lng, place_type=place_type)
 
-                if place_id and place_id not in seen_place_ids:
-                    seen_place_ids.add(place_id)
-                    insert_place(place_id, name_hint=result.get("name"))
+                while True:
+                    for result in data.get("results", []):
+                        if reached_max_locations():
+                            break
+
+                        place_id = result.get("place_id")
+
+                        if not place_id or place_id in seen_place_ids:
+                            continue
+
+                        seen_place_ids.add(place_id)
+                        insert_place(place_id, name_hint=result.get("name"))
+
+                    if reached_max_locations():
+                        break
+
+                    token = data.get("next_page_token")
+                    if not token:
+                        break
+
+                    time.sleep(PAGE_TOKEN_DELAY_SECONDS)
+                    data = nearby_search(lat, lng, place_type=place_type, token=token)
 
     safe_commit()
 except Exception as exc:
