@@ -53,10 +53,30 @@ export function MapFallback({ locations, loading, error, onRetry }: MapFallbackP
       ListHeaderComponent={
         <View>
           <View style={styles.mapPreview}>
-            <Text style={styles.mapPreviewTitle}>Map Fallback Mode</Text>
-            <Text style={styles.mapPreviewText}>
-              Expo Go compatible list while Mapbox is under development.
-            </Text>
+            <View style={styles.previewSearch}>
+              <Text style={styles.previewSearchText}>Find a study spot...</Text>
+            </View>
+            <View style={styles.previewChipRow}>
+              <View style={styles.previewChip}>
+                <Text style={styles.previewChipText}>Open now</Text>
+              </View>
+              <View style={styles.previewChip}>
+                <Text style={styles.previewChipText}>Quiet</Text>
+              </View>
+              <View style={styles.previewChip}>
+                <Text style={styles.previewChipText}>WiFi</Text>
+              </View>
+              <View style={styles.previewChip}>
+                <Text style={styles.previewChipText}>Coffee</Text>
+              </View>
+            </View>
+            <View style={styles.previewMapArt}>
+              <View style={[styles.previewPin, styles.previewPinPrimary]} />
+              <View style={[styles.previewPin, styles.previewPinSecondary]} />
+              <View style={[styles.previewPin, styles.previewPinTertiary]} />
+            </View>
+            <Text style={styles.mapPreviewTitle}>List mode active</Text>
+            <Text style={styles.mapPreviewText}>Map fallback for Expo Go while preserving app layout.</Text>
           </View>
           <Text style={styles.sectionTitle}>Study Spots</Text>
         </View>
@@ -78,8 +98,9 @@ export function MapFallback({ locations, loading, error, onRetry }: MapFallbackP
 
 const styles = StyleSheet.create({
   contentContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 18,
   },
   centeredState: {
     flex: 1,
@@ -112,17 +133,79 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   mapPreview: {
-    marginTop: 8,
+    marginTop: 2,
     marginBottom: 14,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#c6b89c",
-    backgroundColor: "#f8f4e8",
+    borderColor: "#dacdb8",
+    backgroundColor: "#f6efe3",
     paddingHorizontal: 14,
     paddingVertical: 14,
   },
+  previewSearch: {
+    borderRadius: 14,
+    backgroundColor: "#fffaf2",
+    borderWidth: 1,
+    borderColor: "#e0d3bf",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  previewSearchText: {
+    fontSize: 16,
+    color: "#978f83",
+  },
+  previewChipRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  previewChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d8ccb8",
+    backgroundColor: "#fffaf2",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  previewChipText: {
+    color: "#686657",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  previewMapArt: {
+    marginTop: 10,
+    borderRadius: 16,
+    height: 150,
+    backgroundColor: "#e5dece",
+    borderWidth: 1,
+    borderColor: "#d8c9b2",
+    overflow: "hidden",
+  },
+  previewPin: {
+    position: "absolute",
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+  },
+  previewPinPrimary: {
+    top: 32,
+    left: 70,
+    backgroundColor: "#c18447",
+  },
+  previewPinSecondary: {
+    top: 82,
+    right: 82,
+    backgroundColor: "#4c6a45",
+  },
+  previewPinTertiary: {
+    bottom: 28,
+    left: 170,
+    backgroundColor: "#3f5a39",
+  },
   mapPreviewTitle: {
-    fontSize: 14,
+    marginTop: 12,
+    fontSize: 15,
     fontWeight: "700",
     color: "#334226",
   },
@@ -133,18 +216,19 @@ const styles = StyleSheet.create({
     color: "#5d614e",
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#334226",
-    marginBottom: 8,
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#3b4b34",
+    marginBottom: 9,
+    marginLeft: 2,
   },
   locationCard: {
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#d2c7af",
-    backgroundColor: "#fffdf7",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderColor: "#d6cbb5",
+    backgroundColor: "#fffaf2",
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     marginBottom: 10,
   },
   locationName: {

@@ -7,11 +7,15 @@ import { useAuth } from "../context/AuthContext";
 import { getLocations } from "../services/locationService";
 import type { Location } from "../types/location";
 
+type HomeTab = "map" | "filters" | "saved" | "profile";
+const TAB_BAR_RESERVED_HEIGHT = 80;
+
 export function HomeScreen() {
   const { setAccessToken } = useAuth();
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<HomeTab>("map");
 
   const loadLocations = useCallback(async () => {
     try {
@@ -39,59 +43,159 @@ export function HomeScreen() {
   }, [loadLocations]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <StatusBar style="dark" />
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>StudySpot</Text>
-          <Text style={styles.subtitle}>Find where you can actually study right now.</Text>
-        </View>
-        <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
-          <Text style={styles.logoutButtonText}>Log Out</Text>
-        </Pressable>
-      </View>
+      <View style={styles.screen}>
+        <SafeAreaView style={styles.headerSafeArea}>
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.title}>StudySpot</Text>
+              <Text style={styles.subtitle}>Find your ideal study space</Text>
+            </View>
+            <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
+              <Text style={styles.logoutButtonText}>Sign Out</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
 
-      <MapContainer error={error} loading={loading} locations={locations} onRetry={loadLocations} />
-    </SafeAreaView>
+        <View style={styles.mapSurface}>
+          <MapContainer error={error} loading={loading} locations={locations} onRetry={loadLocations} />
+        </View>
+
+        <View style={styles.tabBar}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setActiveTab("map")}
+            style={({ pressed }) => [styles.tabItem, activeTab === "map" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+          >
+            <Text style={[styles.tabIcon, activeTab === "map" && styles.tabIconActive]}>⌖</Text>
+            <Text style={[styles.tabLabel, activeTab === "map" && styles.tabLabelActive]}>Map</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setActiveTab("filters")}
+            style={({ pressed }) => [styles.tabItem, activeTab === "filters" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+          >
+            <Text style={[styles.tabIcon, activeTab === "filters" && styles.tabIconActive]}>☰</Text>
+            <Text style={[styles.tabLabel, activeTab === "filters" && styles.tabLabelActive]}>Filters</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setActiveTab("saved")}
+            style={({ pressed }) => [styles.tabItem, activeTab === "saved" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+          >
+            <Text style={[styles.tabIcon, activeTab === "saved" && styles.tabIconActive]}>☆</Text>
+            <Text style={[styles.tabLabel, activeTab === "saved" && styles.tabLabelActive]}>Saved</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setActiveTab("profile")}
+            style={({ pressed }) => [styles.tabItem, activeTab === "profile" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+          >
+            <Text style={[styles.tabIcon, activeTab === "profile" && styles.tabIconActive]}>◌</Text>
+            <Text style={[styles.tabLabel, activeTab === "profile" && styles.tabLabelActive]}>Profile</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f4f0e6",
+    backgroundColor: "#efe8dc",
+  },
+  screen: {
+    flex: 1,
+  },
+  headerSafeArea: {
+    backgroundColor: "#efe8dc",
   },
   header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 10,
   },
   title: {
-    fontSize: 24,
+    fontSize: 30,
     fontWeight: "800",
-    color: "#334226",
+    color: "#2f4a30",
+    letterSpacing: 0.2,
   },
   subtitle: {
-    marginTop: 2,
-    maxWidth: 230,
-    color: "#49573f",
-    fontSize: 13,
-    lineHeight: 18,
+    marginTop: 1,
+    color: "#6c6b61",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 1.6,
   },
   logoutButton: {
-    borderRadius: 10,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#6d7a5a",
-    backgroundColor: "#fdfbf4",
-    paddingHorizontal: 10,
+    borderColor: "#cdbd9f",
+    backgroundColor: "#fbf7ee",
+    paddingHorizontal: 14,
     paddingVertical: 8,
   },
   logoutButtonText: {
-    color: "#334226",
+    color: "#4b5f45",
     fontWeight: "700",
-    fontSize: 13,
+    fontSize: 12,
+  },
+  mapSurface: {
+    flex: 1,
+    borderRadius: 0,
+    overflow: "hidden",
+    backgroundColor: "#ffffff",
+    marginBottom: TAB_BAR_RESERVED_HEIGHT,
+  },
+  tabBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#fcf8ef",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: TAB_BAR_RESERVED_HEIGHT,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#dacdb7",
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    borderRadius: 14,
+    minHeight: 64,
+  },
+  tabItemActive: {
+    backgroundColor: "#f3e8d7",
+  },
+  tabItemPressed: {
+    opacity: 0.8,
+  },
+  tabIcon: {
+    fontSize: 33,
+    color: "#7d7a70",
+  },
+  tabIconActive: {
+    color: "#ad7237",
+  },
+  tabLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#7d7a70",
+  },
+  tabLabelActive: {
+    color: "#ad7237",
   },
 });

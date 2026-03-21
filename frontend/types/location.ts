@@ -7,9 +7,13 @@ export interface LocationBounds {
   maxLng: number;
 }
 
-export interface LocationFilters {
+export interface SearchIntent {
+  queryText: string;
   openNow: boolean;
+  openAtMinutes: number | null;
   minQuietLevel: number | null;
+  hasOutlets: boolean | null;
+  categories: string[];
 }
 
 export interface GetLocationsParams {

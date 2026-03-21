@@ -1,17 +1,19 @@
 import Mapbox, { type Camera, type MapState } from "@rnmapbox/maps";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import {
-  applyLocationFilters,
+  applySearchIntent,
+  DEFAULT_SEARCH_INTENT,
   isLocationOpenNow,
+  parseNaturalLanguageToIntent,
 } from "../../services/locationFilterService";
 import { getLocationsInBounds } from "../../services/locationService";
 import {
   boundsFromCameraState,
   didBoundsChange,
 } from "../../services/locationViewportService";
-import type { Location, LocationBounds, LocationFilters } from "../../types/location";
+import type { Location, LocationBounds, SearchIntent } from "../../types/location";
 import { MapFallback } from "./MapFallback";
 
 interface MapboxPlaceholderProps {
@@ -22,10 +24,24 @@ interface MapboxPlaceholderProps {
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
-const DEFAULT_FILTERS: LocationFilters = {
-  openNow: false,
-  minQuietLevel: null,
-};
+const OPEN_AT_OPTIONS: Array<number | null> = [null, 8 * 60, 12 * 60, 18 * 60];
+const CATEGORY_CHIPS = [
+  { label: "Coffee", value: "coffee" },
+  { label: "Boba", value: "boba" },
+  { label: "Library", value: "library" },
+] as const;
+
+function formatMinutesLabel(totalMinutes: number | null): string {
+  if (totalMinutes === null) {
+    return "Any Time";
+  }
+
+  const hours24 = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  const hour12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
 
 export function MapboxPlaceholder({
   locations,
@@ -37,11 +53,12 @@ export function MapboxPlaceholder({
   const shapeSourceRef = useRef<any>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<LocationFilters>(DEFAULT_FILTERS);
+  const [intent, setIntent] = useState<SearchIntent>(DEFAULT_SEARCH_INTENT);
   const [viewportLocations, setViewportLocations] = useState<Location[]>(locations);
   const [viewportLoading, setViewportLoading] = useState(false);
   const [viewportError, setViewportError] = useState<string | null>(null);
   const [lastFetchedBounds, setLastFetchedBounds] = useState<LocationBounds | null>(null);
+  const [isSearchActive, setIsSearchActive] = useState(false);
 
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
   const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
@@ -111,13 +128,24 @@ export function MapboxPlaceholder({
   );
 
   const filteredLocations = useMemo(
-    () => applyLocationFilters(validLocations, filters),
-    [filters, validLocations],
+    () => applySearchIntent(validLocations, intent),
+    [intent, validLocations],
   );
 
   const selectedLocation = useMemo(
     () => filteredLocations.find((location) => location.id === selectedLocationId) ?? null,
     [filteredLocations, selectedLocationId],
+  );
+
+  const hasActiveFilters = useMemo(
+    () =>
+      Boolean(intent.queryText.trim()) ||
+      intent.openNow ||
+      intent.openAtMinutes !== null ||
+      intent.minQuietLevel !== null ||
+      intent.hasOutlets !== null ||
+      intent.categories.length > 0,
+    [intent],
   );
 
   const locationFeatureCollection = useMemo<GeoJSON.FeatureCollection>(
@@ -242,6 +270,7 @@ export function MapboxPlaceholder({
   return (
     <View style={styles.container}>
       <Mapbox.MapView
+        key={styleURL}
         onMapIdle={onMapIdle}
         style={styles.map}
         styleURL={styleURL}
@@ -323,51 +352,141 @@ export function MapboxPlaceholder({
         </Mapbox.ShapeSource>
       </Mapbox.MapView>
 
-      <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Mapbox live</Text>
-        <Text style={styles.bannerText}>
-          Showing {filteredLocations.length} spots in this map area. Pan map to fetch new bounds.
-        </Text>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputWrapper}>
+          <Text style={styles.searchIcon}>⌕</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            onBlur={() => setIsSearchActive(false)}
+            onChangeText={(value) => setIntent((prev) => ({ ...prev, queryText: value }))}
+            onFocus={() => setIsSearchActive(true)}
+            placeholder="Find a study spot..."
+            placeholderTextColor="#8c826f"
+            style={styles.searchInput}
+            value={intent.queryText}
+          />
+        </View>
       </View>
 
-      <View style={styles.filterBar}>
-        <Pressable
-          onPress={() => setFilters((prev) => ({ ...prev, openNow: !prev.openNow }))}
-          style={[styles.filterChip, filters.openNow && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, filters.openNow && styles.filterChipTextActive]}>
-            Open Now
-          </Text>
-        </Pressable>
+      {isSearchActive ? (
+        <>
+          <View style={styles.filterBar}>
+            <Pressable
+              onPress={() => setIntent((prev) => ({ ...prev, openNow: !prev.openNow, openAtMinutes: null }))}
+              style={[styles.filterChip, intent.openNow && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, intent.openNow && styles.filterChipTextActive]}>
+                Open Now
+              </Text>
+            </Pressable>
 
-        <Pressable
-          onPress={() =>
-            setFilters((prev) => {
-              const nextQuiet = prev.minQuietLevel === 4 ? null : prev.minQuietLevel === 3 ? 4 : 3;
-              return { ...prev, minQuietLevel: nextQuiet };
-            })
-          }
-          style={[styles.filterChip, Boolean(filters.minQuietLevel) && styles.filterChipActive]}
-        >
-          <Text
-            style={[
-              styles.filterChipText,
-              Boolean(filters.minQuietLevel) && styles.filterChipTextActive,
-            ]}
-          >
-            {filters.minQuietLevel ? `Quiet ${filters.minQuietLevel}+` : "Quiet Any"}
-          </Text>
-        </Pressable>
+            <Pressable
+              onPress={() => {
+                setIntent((prev) => {
+                  const nextQuiet = prev.minQuietLevel === 4 ? null : prev.minQuietLevel === 3 ? 4 : 3;
+                  return { ...prev, minQuietLevel: nextQuiet };
+                });
+              }}
+              style={[styles.filterChip, Boolean(intent.minQuietLevel) && styles.filterChipActive]}
+            >
+              <Text
+                style={[
+                  styles.filterChipText,
+                  Boolean(intent.minQuietLevel) && styles.filterChipTextActive,
+                ]}
+              >
+                {intent.minQuietLevel ? `Quiet ${intent.minQuietLevel}+` : "Quiet Any"}
+              </Text>
+            </Pressable>
 
-        {(filters.openNow || filters.minQuietLevel) ? (
-          <Pressable
-            onPress={() => setFilters(DEFAULT_FILTERS)}
-            style={[styles.filterChip, styles.filterChipReset]}
-          >
-            <Text style={styles.filterChipText}>Reset</Text>
-          </Pressable>
-        ) : null}
-      </View>
+            <Pressable
+              onPress={() =>
+                setIntent((prev) => ({
+                  ...prev,
+                  hasOutlets: prev.hasOutlets ? null : true,
+                }))
+              }
+              style={[styles.filterChip, intent.hasOutlets === true && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, intent.hasOutlets === true && styles.filterChipTextActive]}>
+                Outlets
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.filterBarSecondary}>
+            <Pressable
+              onPress={() =>
+                setIntent((prev) => {
+                  const currentIndex = OPEN_AT_OPTIONS.findIndex((value) => value === prev.openAtMinutes);
+                  const nextIndex = currentIndex === OPEN_AT_OPTIONS.length - 1 ? 0 : currentIndex + 1;
+                  return {
+                    ...prev,
+                    openNow: false,
+                    openAtMinutes: OPEN_AT_OPTIONS[nextIndex],
+                  };
+                })
+              }
+              style={[styles.filterChip, intent.openAtMinutes !== null && styles.filterChipActive]}
+            >
+              <Text
+                style={[styles.filterChipText, intent.openAtMinutes !== null && styles.filterChipTextActive]}
+              >
+                {`Open At ${formatMinutesLabel(intent.openAtMinutes)}`}
+              </Text>
+            </Pressable>
+
+            {CATEGORY_CHIPS.map((chip) => (
+              <Pressable
+                key={chip.value}
+                onPress={() =>
+                  setIntent((prev) => {
+                    const hasCategory = prev.categories.includes(chip.value);
+                    const nextCategories = hasCategory
+                      ? prev.categories.filter((value) => value !== chip.value)
+                      : [...prev.categories, chip.value];
+                    return { ...prev, categories: nextCategories };
+                  })
+                }
+                style={[styles.filterChip, intent.categories.includes(chip.value) && styles.filterChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    intent.categories.includes(chip.value) && styles.filterChipTextActive,
+                  ]}
+                >
+                  {chip.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.filterBarTertiary}>
+            <Pressable
+              onPress={() =>
+                setIntent((prev) => ({
+                  ...prev,
+                  ...parseNaturalLanguageToIntent(prev.queryText),
+                }))
+              }
+              style={styles.filterChip}
+            >
+              <Text style={styles.filterChipText}>Apply Text Filters</Text>
+            </Pressable>
+
+            {hasActiveFilters ? (
+              <Pressable
+                onPress={() => setIntent(DEFAULT_SEARCH_INTENT)}
+                style={[styles.filterChip, styles.filterChipReset]}
+              >
+                <Text style={styles.filterChipText}>Reset</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </>
+      ) : null}
 
       {mapIsLoading ? (
         <View style={styles.loadingOverlay}>
@@ -390,7 +509,7 @@ export function MapboxPlaceholder({
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>No locations match these filters</Text>
           <Text style={styles.errorText}>Try widening the map or resetting filters.</Text>
-          <Pressable onPress={() => setFilters(DEFAULT_FILTERS)} style={styles.retryButton}>
+          <Pressable onPress={() => setIntent(DEFAULT_SEARCH_INTENT)} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Reset Filters</Text>
           </Pressable>
         </View>
@@ -405,7 +524,7 @@ export function MapboxPlaceholder({
           <Text style={styles.selectionMeta}>
             Quiet {selectedLocation.quiet_level}/5 • {selectedLocation.has_outlets ? "Outlets" : "No outlet data"}
           </Text>
-          {filters.openNow ? (
+          {intent.openNow || intent.openAtMinutes !== null ? (
             <Text style={styles.selectionMeta}>
               {isLocationOpenNow(selectedLocation, new Date()) === false
                 ? "Closed now"
@@ -421,25 +540,23 @@ export function MapboxPlaceholder({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: "#efe8dc",
   },
   map: {
     flex: 1,
-    marginTop: 14,
-    marginBottom: 18,
   },
   banner: {
     position: "absolute",
-    marginHorizontal: 16,
-    top: 8,
+    marginHorizontal: 12,
+    top: 12,
     left: 0,
     right: 0,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#b79f7a",
-    backgroundColor: "rgba(254, 248, 234, 0.95)",
+    borderColor: "#d6c8b3",
+    backgroundColor: "rgba(254, 249, 239, 0.95)",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   bannerWarning: {
     marginHorizontal: 16,
@@ -466,25 +583,70 @@ const styles = StyleSheet.create({
   fallbackContainer: {
     flex: 1,
   },
+  searchContainer: {
+    position: "absolute",
+    top: 14,
+    left: 12,
+    right: 12,
+  },
+  searchInputWrapper: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#ddd0bb",
+    backgroundColor: "rgba(255, 253, 248, 0.98)",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 12,
+    paddingRight: 8,
+  },
+  searchIcon: {
+    fontSize: 32,
+    color: "#8c826f",
+    marginRight: 6,
+    marginTop: -1,
+  },
+  searchInput: {
+    flex: 1,
+    color: "#4a4a3d",
+    fontSize: 16,
+    paddingHorizontal: 4,
+    paddingVertical: 11,
+  },
   filterBar: {
     position: "absolute",
-    top: 78,
-    left: 16,
-    right: 16,
+    top: 64,
+    left: 12,
+    right: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+  filterBarSecondary: {
+    position: "absolute",
+    top: 106,
+    left: 12,
+    right: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+  filterBarTertiary: {
+    position: "absolute",
+    top: 148,
+    left: 12,
+    right: 12,
     flexDirection: "row",
     gap: 8,
   },
   filterChip: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#b8aa8e",
-    backgroundColor: "rgba(253, 251, 244, 0.95)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    borderColor: "#dbcdb8",
+    backgroundColor: "rgba(255, 253, 248, 0.95)",
+    paddingHorizontal: 13,
+    paddingVertical: 8,
   },
   filterChipActive: {
-    borderColor: "#334226",
-    backgroundColor: "#334226",
+    borderColor: "#2f5634",
+    backgroundColor: "#2f5634",
   },
   filterChipReset: {
     borderColor: "#8f856f",
@@ -499,9 +661,9 @@ const styles = StyleSheet.create({
   },
   loadingOverlay: {
     position: "absolute",
-    top: 120,
+    top: 252,
     alignSelf: "center",
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "#d8cfba",
     backgroundColor: "rgba(253, 251, 244, 0.96)",
@@ -518,15 +680,15 @@ const styles = StyleSheet.create({
   },
   errorCard: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 16,
-    borderRadius: 12,
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#d6cdb8",
-    backgroundColor: "rgba(253, 251, 244, 0.98)",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: "rgba(255, 253, 248, 0.98)",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
   errorTitle: {
     fontSize: 13,
@@ -555,15 +717,15 @@ const styles = StyleSheet.create({
   },
   selectionCard: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 16,
-    borderRadius: 12,
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#d6cdb8",
-    backgroundColor: "rgba(253, 251, 244, 0.98)",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    backgroundColor: "rgba(255, 253, 248, 0.98)",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
   selectionTitle: {
     fontSize: 14,
