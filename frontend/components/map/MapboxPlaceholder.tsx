@@ -13,7 +13,12 @@ import {
   boundsFromCameraState,
   didBoundsChange,
 } from "../../services/locationViewportService";
-import type { Location, LocationBounds, SearchIntent } from "../../types/location";
+import type {
+  Location,
+  LocationBounds,
+  SearchIntent,
+  UserCoordinates,
+} from "../../types/location";
 import { MapFallback } from "./MapFallback";
 
 interface MapboxPlaceholderProps {
@@ -21,6 +26,7 @@ interface MapboxPlaceholderProps {
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  userCoordinates: UserCoordinates | null;
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
@@ -48,6 +54,7 @@ export function MapboxPlaceholder({
   loading,
   error,
   onRetry,
+  userCoordinates,
 }: MapboxPlaceholderProps) {
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
@@ -63,6 +70,9 @@ export function MapboxPlaceholder({
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
   const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
   const styleURL = configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street;
+  const initialCenterCoordinate: [number, number] = userCoordinates
+    ? [userCoordinates.lng, userCoordinates.lat]
+    : DEFAULT_CENTER;
 
   useEffect(() => {
     setViewportLocations(locations);
@@ -83,7 +93,12 @@ export function MapboxPlaceholder({
     setViewportError(null);
 
     try {
-      const response = await getLocationsInBounds(bounds, { limit: 100, sort: "name" });
+      const response = await getLocationsInBounds(bounds, {
+        lat: userCoordinates?.lat,
+        lng: userCoordinates?.lng,
+        limit: 100,
+        sort: userCoordinates ? "distance" : "name",
+      });
 
       if (!response.success || !response.data) {
         setViewportError(response.error ?? "Failed to load viewport locations");
@@ -96,7 +111,7 @@ export function MapboxPlaceholder({
     } finally {
       setViewportLoading(false);
     }
-  }, []);
+  }, [userCoordinates]);
 
   const onMapIdle = useCallback(
     (state: MapState) => {
@@ -196,17 +211,17 @@ export function MapboxPlaceholder({
   }, [accessToken]);
 
   useEffect(() => {
-    if (!selectedLocation || !cameraRef.current) {
+    if (!userCoordinates || !cameraRef.current) {
       return;
     }
 
     cameraRef.current.setCamera({
-      centerCoordinate: [selectedLocation.longitude, selectedLocation.latitude],
-      zoomLevel: 13,
-      animationDuration: 350,
+      centerCoordinate: [userCoordinates.lng, userCoordinates.lat],
+      zoomLevel: 11.5,
+      animationDuration: 450,
       animationMode: "easeTo",
     });
-  }, [selectedLocation]);
+  }, [userCoordinates]);
 
   const onShapePress = useCallback(async (event: any) => {
     const feature = event?.features?.[0];
@@ -246,7 +261,20 @@ export function MapboxPlaceholder({
 
     const locationId = feature.properties?.locationId;
     if (typeof locationId === "string") {
-      setSelectedLocationId(locationId);
+      setSelectedLocationId((previousId) => {
+        if (previousId === locationId) {
+          return null;
+        }
+
+        cameraRef.current?.setCamera({
+          centerCoordinate: [coordinates[0], coordinates[1]],
+          zoomLevel: 13,
+          animationDuration: 350,
+          animationMode: "easeTo",
+        });
+
+        return locationId;
+      });
     }
   }, []);
 
@@ -278,7 +306,7 @@ export function MapboxPlaceholder({
         <Mapbox.Camera
           ref={cameraRef}
           defaultSettings={{
-            centerCoordinate: DEFAULT_CENTER,
+            centerCoordinate: initialCenterCoordinate,
             zoomLevel: 10,
           }}
         />
