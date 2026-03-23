@@ -1,7 +1,7 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 
-import type { Location } from "../../types/location";
+import type { Location, UserCoordinates } from "../../types/location";
 import { MapFallback } from "./MapFallback";
 import { MapboxPlaceholder } from "./MapboxPlaceholder";
 
@@ -12,6 +12,7 @@ interface MapContainerProps {
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  userCoordinates: UserCoordinates | null;
 }
 
 function getMapProvider(): MapProvider {
@@ -19,13 +20,25 @@ function getMapProvider(): MapProvider {
   return configured === "mapbox" ? "mapbox" : "fallback";
 }
 
-export function MapContainer({ locations, loading, error, onRetry }: MapContainerProps) {
+export function MapContainer({
+  locations,
+  loading,
+  error,
+  onRetry,
+  userCoordinates,
+}: MapContainerProps) {
   const mapProvider = getMapProvider();
 
   return (
     <View style={styles.container}>
       {mapProvider === "mapbox" ? (
-        <MapboxPlaceholder error={error} loading={loading} locations={locations} onRetry={onRetry} />
+        <MapboxPlaceholder
+          error={error}
+          loading={loading}
+          locations={locations}
+          onRetry={onRetry}
+          userCoordinates={userCoordinates}
+        />
       ) : (
         <MapFallback error={error} loading={loading} locations={locations} onRetry={onRetry} />
       )}

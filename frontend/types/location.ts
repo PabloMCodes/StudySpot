@@ -7,6 +7,11 @@ export interface LocationBounds {
   maxLng: number;
 }
 
+export interface UserCoordinates {
+  lat: number;
+  lng: number;
+}
+
 export interface SearchIntent {
   queryText: string;
   openNow: boolean;

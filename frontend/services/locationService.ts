@@ -24,13 +24,15 @@ export function getLocations(params?: GetLocationsParams): Promise<ApiResponse<L
 
 export function getLocationsInBounds(
   bounds: LocationBounds,
-  options?: Pick<GetLocationsParams, "sort" | "limit" | "offset">,
+  options?: Pick<GetLocationsParams, "sort" | "limit" | "offset" | "lat" | "lng">,
 ): Promise<ApiResponse<Location[]>> {
   return getLocations({
     min_lat: bounds.minLat,
     max_lat: bounds.maxLat,
     min_lng: bounds.minLng,
     max_lng: bounds.maxLng,
+    lat: options?.lat,
+    lng: options?.lng,
     sort: options?.sort ?? "name",
     limit: options?.limit ?? 100,
     offset: options?.offset ?? 0,

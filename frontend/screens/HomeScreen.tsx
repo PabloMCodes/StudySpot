@@ -4,8 +4,9 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { MapContainer } from "../components/map/MapContainer";
 import { useAuth } from "../context/AuthContext";
+import { requestForegroundCoordinates } from "../services/deviceLocationService";
 import { getLocations } from "../services/locationService";
-import type { Location } from "../types/location";
+import type { Location, UserCoordinates } from "../types/location";
 
 type HomeTab = "map" | "filters" | "saved" | "profile";
 const TAB_BAR_RESERVED_HEIGHT = 80;
@@ -16,12 +17,25 @@ export function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<HomeTab>("map");
+  const [userCoordinates, setUserCoordinates] = useState<UserCoordinates | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationMessage, setLocationMessage] = useState<string | null>(null);
 
-  const loadLocations = useCallback(async () => {
+  const loadLocations = useCallback(async (coords: UserCoordinates | null = userCoordinates) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await getLocations({ limit: 50, sort: "name" });
+      const response = await getLocations(
+        coords
+          ? {
+              lat: coords.lat,
+              lng: coords.lng,
+              radius_m: 25_000,
+              limit: 50,
+              sort: "distance",
+            }
+          : { limit: 50, sort: "name" },
+      );
 
       if (!response.success || !response.data) {
         setLocations([]);
@@ -36,10 +50,31 @@ export function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userCoordinates]);
 
   useEffect(() => {
     void loadLocations();
+  }, [loadLocations]);
+
+  const useCurrentLocation = useCallback(async () => {
+    setLocationLoading(true);
+    setLocationMessage(null);
+
+    try {
+      const coords = await requestForegroundCoordinates();
+      if (!coords) {
+        setLocationMessage("Location permission denied. Showing all spots.");
+        return;
+      }
+
+      setUserCoordinates(coords);
+      setLocationMessage("Using your location for nearby recommendations.");
+      await loadLocations(coords);
+    } catch {
+      setLocationMessage("Could not get your location. Showing all spots.");
+    } finally {
+      setLocationLoading(false);
+    }
   }, [loadLocations]);
 
   return (
@@ -51,15 +86,33 @@ export function HomeScreen() {
             <View>
               <Text style={styles.title}>StudySpot</Text>
               <Text style={styles.subtitle}>Find your ideal study space</Text>
+              {locationMessage ? <Text style={styles.locationMessage}>{locationMessage}</Text> : null}
             </View>
-            <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
-              <Text style={styles.logoutButtonText}>Sign Out</Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                disabled={locationLoading}
+                onPress={() => void useCurrentLocation()}
+                style={[styles.locationButton, locationLoading && styles.locationButtonDisabled]}
+              >
+                <Text style={styles.locationButtonText}>
+                  {locationLoading ? "Locating..." : userCoordinates ? "Near Me On" : "Use My Location"}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
+                <Text style={styles.logoutButtonText}>Sign Out</Text>
+              </Pressable>
+            </View>
           </View>
         </SafeAreaView>
 
         <View style={styles.mapSurface}>
-          <MapContainer error={error} loading={loading} locations={locations} onRetry={loadLocations} />
+          <MapContainer
+            error={error}
+            loading={loading}
+            locations={locations}
+            onRetry={() => void loadLocations()}
+            userCoordinates={userCoordinates}
+          />
         </View>
 
         <View style={styles.tabBar}>
@@ -133,6 +186,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textTransform: "uppercase",
     letterSpacing: 1.6,
+  },
+  locationMessage: {
+    marginTop: 4,
+    color: "#4b5f45",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  headerActions: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  locationButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#9eb28a",
+    backgroundColor: "#edf5e3",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  locationButtonDisabled: {
+    opacity: 0.75,
+  },
+  locationButtonText: {
+    color: "#3f5b35",
+    fontWeight: "700",
+    fontSize: 12,
   },
   logoutButton: {
     borderRadius: 999,

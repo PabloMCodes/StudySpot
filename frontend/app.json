@@ -14,19 +14,32 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.studyspot.app"
+      "bundleIdentifier": "com.studyspot.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "StudySpot uses your location to show nearby study spots."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F7F2E6"
       },
-      "package": "com.studyspot.app"
+      "package": "com.studyspot.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro"
     },
     "plugins": [
-      "@rnmapbox/maps"
+      "@rnmapbox/maps",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "StudySpot uses your location to show nearby study spots."
+        }
+      ]
     ]
   }
 }
