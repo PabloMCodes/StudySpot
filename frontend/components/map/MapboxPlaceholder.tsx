@@ -11,7 +11,6 @@ import {
 import { getLocationsInBounds } from "../../services/locationService";
 import {
   boundsFromCameraState,
-  didBoundsChange,
 } from "../../services/locationViewportService";
 import type {
   Location,
@@ -58,13 +57,14 @@ export function MapboxPlaceholder({
 }: MapboxPlaceholderProps) {
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
+  const latestViewportRequestIdRef = useRef(0);
+  const lastViewportBoundsKeyRef = useRef<string | null>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [intent, setIntent] = useState<SearchIntent>(DEFAULT_SEARCH_INTENT);
   const [viewportLocations, setViewportLocations] = useState<Location[]>(locations);
   const [viewportLoading, setViewportLoading] = useState(false);
   const [viewportError, setViewportError] = useState<string | null>(null);
-  const [lastFetchedBounds, setLastFetchedBounds] = useState<LocationBounds | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
 
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
@@ -89,16 +89,20 @@ export function MapboxPlaceholder({
   }, [selectedLocationId, viewportLocations]);
 
   const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
+    const requestId = latestViewportRequestIdRef.current + 1;
+    latestViewportRequestIdRef.current = requestId;
     setViewportLoading(true);
     setViewportError(null);
 
     try {
       const response = await getLocationsInBounds(bounds, {
-        lat: userCoordinates?.lat,
-        lng: userCoordinates?.lng,
         limit: 100,
-        sort: userCoordinates ? "distance" : "name",
+        sort: "name",
       });
+
+      if (requestId !== latestViewportRequestIdRef.current) {
+        return;
+      }
 
       if (!response.success || !response.data) {
         setViewportError(response.error ?? "Failed to load viewport locations");
@@ -107,11 +111,16 @@ export function MapboxPlaceholder({
 
       setViewportLocations(response.data);
     } catch {
+      if (requestId !== latestViewportRequestIdRef.current) {
+        return;
+      }
       setViewportError("Failed to load viewport locations");
     } finally {
-      setViewportLoading(false);
+      if (requestId === latestViewportRequestIdRef.current) {
+        setViewportLoading(false);
+      }
     }
-  }, [userCoordinates]);
+  }, []);
 
   const onMapIdle = useCallback(
     (state: MapState) => {
@@ -120,14 +129,21 @@ export function MapboxPlaceholder({
         return;
       }
 
-      if (!didBoundsChange(lastFetchedBounds, bounds)) {
+      const boundsKey = [
+        bounds.minLat.toFixed(4),
+        bounds.maxLat.toFixed(4),
+        bounds.minLng.toFixed(4),
+        bounds.maxLng.toFixed(4),
+      ].join("|");
+
+      if (lastViewportBoundsKeyRef.current === boundsKey) {
         return;
       }
 
-      setLastFetchedBounds(bounds);
+      lastViewportBoundsKeyRef.current = boundsKey;
       void fetchLocationsForBounds(bounds);
     },
-    [fetchLocationsForBounds, lastFetchedBounds],
+    [fetchLocationsForBounds],
   );
 
   const validLocations = useMemo(
@@ -309,6 +325,12 @@ export function MapboxPlaceholder({
             centerCoordinate: initialCenterCoordinate,
             zoomLevel: 10,
           }}
+        />
+        <Mapbox.LocationPuck
+          pulsing={{ color: "#3f6aa0", isEnabled: true, radius: "accuracy" }}
+          puckBearing="heading"
+          puckBearingEnabled
+          visible
         />
         <Mapbox.ShapeSource
           cluster

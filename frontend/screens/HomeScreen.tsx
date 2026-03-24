@@ -21,7 +21,7 @@ export function HomeScreen() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
 
-  const loadLocations = useCallback(async (coords: UserCoordinates | null = userCoordinates) => {
+  const loadLocations = useCallback(async (coords: UserCoordinates | null) => {
     try {
       setLoading(true);
       setError(null);
@@ -30,11 +30,10 @@ export function HomeScreen() {
           ? {
               lat: coords.lat,
               lng: coords.lng,
-              radius_m: 25_000,
-              limit: 50,
+              limit: 100,
               sort: "distance",
             }
-          : { limit: 50, sort: "name" },
+          : { limit: 100, sort: "name" },
       );
 
       if (!response.success || !response.data) {
@@ -50,20 +49,18 @@ export function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, [userCoordinates]);
+  }, []);
 
-  useEffect(() => {
-    void loadLocations();
-  }, [loadLocations]);
-
-  const useCurrentLocation = useCallback(async () => {
+  const requestLocationAndLoad = useCallback(async () => {
     setLocationLoading(true);
     setLocationMessage(null);
 
     try {
       const coords = await requestForegroundCoordinates();
       if (!coords) {
+        setUserCoordinates(null);
         setLocationMessage("Location permission denied. Showing all spots.");
+        await loadLocations(null);
         return;
       }
 
@@ -71,11 +68,17 @@ export function HomeScreen() {
       setLocationMessage("Using your location for nearby recommendations.");
       await loadLocations(coords);
     } catch {
+      setUserCoordinates(null);
       setLocationMessage("Could not get your location. Showing all spots.");
+      await loadLocations(null);
     } finally {
       setLocationLoading(false);
     }
   }, [loadLocations]);
+
+  useEffect(() => {
+    void requestLocationAndLoad();
+  }, [requestLocationAndLoad]);
 
   return (
     <View style={styles.safeArea}>
@@ -86,22 +89,20 @@ export function HomeScreen() {
             <View>
               <Text style={styles.title}>StudySpot</Text>
               <Text style={styles.subtitle}>Find your ideal study space</Text>
-              {locationMessage ? <Text style={styles.locationMessage}>{locationMessage}</Text> : null}
-            </View>
-            <View style={styles.headerActions}>
-              <Pressable
-                disabled={locationLoading}
-                onPress={() => void useCurrentLocation()}
-                style={[styles.locationButton, locationLoading && styles.locationButtonDisabled]}
-              >
-                <Text style={styles.locationButtonText}>
-                  {locationLoading ? "Locating..." : userCoordinates ? "Near Me On" : "Use My Location"}
+              {locationMessage ? (
+                <Text style={styles.locationMessage}>
+                  {locationLoading ? "Checking location..." : locationMessage}
                 </Text>
-              </Pressable>
-              <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
-                <Text style={styles.logoutButtonText}>Sign Out</Text>
-              </Pressable>
+              ) : null}
+              {!userCoordinates && !locationLoading ? (
+                <Pressable onPress={() => void requestLocationAndLoad()}>
+                  <Text style={styles.locationLink}>Enable location for nearby results</Text>
+                </Pressable>
+              ) : null}
             </View>
+            <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
+              <Text style={styles.logoutButtonText}>Sign Out</Text>
+            </Pressable>
           </View>
         </SafeAreaView>
 
@@ -110,7 +111,7 @@ export function HomeScreen() {
             error={error}
             loading={loading}
             locations={locations}
-            onRetry={() => void loadLocations()}
+            onRetry={() => void loadLocations(userCoordinates)}
             userCoordinates={userCoordinates}
           />
         </View>
@@ -193,25 +194,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  headerActions: {
-    alignItems: "flex-end",
-    gap: 8,
-  },
-  locationButton: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#9eb28a",
-    backgroundColor: "#edf5e3",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  locationButtonDisabled: {
-    opacity: 0.75,
-  },
-  locationButtonText: {
+  locationLink: {
+    marginTop: 4,
     color: "#3f5b35",
-    fontWeight: "700",
     fontSize: 12,
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
   logoutButton: {
     borderRadius: 999,
