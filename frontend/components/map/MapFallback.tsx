@@ -191,17 +191,17 @@ const styles = StyleSheet.create({
   previewPinPrimary: {
     top: 32,
     left: 70,
-    backgroundColor: "#c18447",
+    backgroundColor: "#6b3f22",
   },
   previewPinSecondary: {
     top: 82,
     right: 82,
-    backgroundColor: "#4c6a45",
+    backgroundColor: "#5a341d",
   },
   previewPinTertiary: {
     bottom: 28,
     left: 170,
-    backgroundColor: "#3f5a39",
+    backgroundColor: "#4a2a18",
   },
   mapPreviewTitle: {
     marginTop: 12,

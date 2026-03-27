@@ -11,6 +11,7 @@ import {
 import { getLocationsInBounds } from "../../services/locationService";
 import {
   boundsFromCameraState,
+  didBoundsChange,
 } from "../../services/locationViewportService";
 import type {
   Location,
@@ -58,7 +59,7 @@ export function MapboxPlaceholder({
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
   const latestViewportRequestIdRef = useRef(0);
-  const lastViewportBoundsKeyRef = useRef<string | null>(null);
+  const lastViewportBoundsRef = useRef<LocationBounds | null>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [intent, setIntent] = useState<SearchIntent>(DEFAULT_SEARCH_INTENT);
@@ -122,28 +123,36 @@ export function MapboxPlaceholder({
     }
   }, []);
 
-  const onMapIdle = useCallback(
+  const maybeFetchLocationsForState = useCallback(
     (state: MapState) => {
       const bounds = boundsFromCameraState(state);
       if (!bounds) {
         return;
       }
 
-      const boundsKey = [
-        bounds.minLat.toFixed(4),
-        bounds.maxLat.toFixed(4),
-        bounds.minLng.toFixed(4),
-        bounds.maxLng.toFixed(4),
-      ].join("|");
-
-      if (lastViewportBoundsKeyRef.current === boundsKey) {
+      // Ignore tiny camera movements to avoid redundant fetches while panning.
+      if (!didBoundsChange(lastViewportBoundsRef.current, bounds, 0.01)) {
         return;
       }
 
-      lastViewportBoundsKeyRef.current = boundsKey;
+      lastViewportBoundsRef.current = bounds;
       void fetchLocationsForBounds(bounds);
     },
     [fetchLocationsForBounds],
+  );
+
+  const onMapIdle = useCallback(
+    (state: MapState) => {
+      maybeFetchLocationsForState(state);
+    },
+    [maybeFetchLocationsForState],
+  );
+
+  const onCameraChanged = useCallback(
+    (state: MapState) => {
+      maybeFetchLocationsForState(state);
+    },
+    [maybeFetchLocationsForState],
   );
 
   const validLocations = useMemo(
@@ -315,6 +324,7 @@ export function MapboxPlaceholder({
     <View style={styles.container}>
       <Mapbox.MapView
         key={styleURL}
+        onCameraChanged={onCameraChanged}
         onMapIdle={onMapIdle}
         style={styles.map}
         styleURL={styleURL}
@@ -346,7 +356,7 @@ export function MapboxPlaceholder({
             id="locations-cluster-circle"
             filter={["has", "point_count"]}
             style={{
-              circleColor: "#334226",
+              circleColor: "#5a321b",
               circleRadius: [
                 "step",
                 ["get", "point_count"],
@@ -377,7 +387,7 @@ export function MapboxPlaceholder({
             id="locations-point-circle"
             filter={["!", ["has", "point_count"]]}
             style={{
-              circleColor: "#334226",
+              circleColor: "#5a321b",
               circleRadius: 8,
               circleOpacity: 0.95,
               circleStrokeColor: "#ffffff",
@@ -392,7 +402,7 @@ export function MapboxPlaceholder({
               ["==", ["get", "locationId"], selectedLocationId ?? "__none__"],
             ]}
             style={{
-              circleColor: "#8f4c2f",
+              circleColor: "#7a4728",
               circleRadius: 10,
               circleOpacity: 1,
               circleStrokeColor: "#ffffff",

@@ -8,7 +8,9 @@ interface CameraStateLike {
       ne?: Coordinate;
       sw?: Coordinate;
     };
+    visibleBounds?: [Coordinate, Coordinate];
   };
+  visibleBounds?: [Coordinate, Coordinate];
 }
 
 const MIN_CHANGE_THRESHOLD = 0.0008;
@@ -33,8 +35,14 @@ function extractLngLat(coordinate: Coordinate | undefined): [number, number] | n
 }
 
 export function boundsFromCameraState(state: CameraStateLike): LocationBounds | null {
-  const ne = extractLngLat(state.properties?.bounds?.ne);
-  const sw = extractLngLat(state.properties?.bounds?.sw);
+  const ne =
+    extractLngLat(state.properties?.bounds?.ne) ??
+    extractLngLat(state.properties?.visibleBounds?.[0]) ??
+    extractLngLat(state.visibleBounds?.[0]);
+  const sw =
+    extractLngLat(state.properties?.bounds?.sw) ??
+    extractLngLat(state.properties?.visibleBounds?.[1]) ??
+    extractLngLat(state.visibleBounds?.[1]);
 
   if (!ne || !sw) {
     return null;
