@@ -1,12 +1,12 @@
 import { apiRequest, type ApiResponse } from "./api";
 
 export interface LoginPayload {
-  idToken: string; // this needs to change, due to the fact that we are recieving this from the frontend
+  id_token: string;
 }
 // export from the backend
 export interface AuthTokenResponse {
   access_token: string;
-  tokenType: "bearer";
+  token_type: "bearer";
 }
 
 export function login(payload: LoginPayload): Promise<ApiResponse<AuthTokenResponse>> {

@@ -16,13 +16,15 @@ from sqlalchemy.orm import Session
 from models.user import User
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_IOS_CLIENT_ID = os.getenv("GOOGLE_IOS_CLIENT_ID", "")
+GOOGLE_ANDROID_CLIENT_ID = os.getenv("GOOGLE_ANDROID_CLIENT_ID", "")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
 def authenticate_google_user(db: Session, id_token: str) -> dict[str, str]:
-    if not GOOGLE_CLIENT_ID:
-        raise ValueError("GOOGLE_CLIENT_ID is not configured")
+    if not _allowed_google_client_ids():
+        raise ValueError("Google OAuth client IDs are not configured")
     if not JWT_SECRET_KEY:
         raise ValueError("JWT_SECRET_KEY is not configured")
 
@@ -38,16 +40,30 @@ def authenticate_google_user(db: Session, id_token: str) -> dict[str, str]:
 
     return {"access_token": access_token, "token_type": "bearer"}
 
+
+def _allowed_google_client_ids() -> set[str]:
+    return {
+        client_id
+        for client_id in (GOOGLE_CLIENT_ID, GOOGLE_IOS_CLIENT_ID, GOOGLE_ANDROID_CLIENT_ID)
+        if client_id
+    }
+
+
 # verification by google payload, returns id information
 def verify_google_id_token(id_token: str) -> dict:
     request_session = google.auth.transport.requests.Request()
     try:
-        id_info = google.oauth2.id_token.verify_oauth2_token(id_token, request_session, GOOGLE_CLIENT_ID)
+        # Verify signature/expiry first, then validate audience against allowed app client IDs.
+        id_info = google.oauth2.id_token.verify_oauth2_token(id_token, request_session, None)
     except Exception as exc:
-        raise ValueError({"Invalid Google ID token" : exc})
+        raise ValueError(f"Invalid Google ID token: {exc}")
 
     if id_info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"): 
         raise ValueError("Invalid Google token issuer") ##### "iss" is who issue token 
+
+    audience = id_info.get("aud")
+    if audience not in _allowed_google_client_ids():
+        raise ValueError("Google token audience is not allowed for this backend")
 
     return id_info
 

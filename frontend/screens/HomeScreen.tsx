@@ -120,7 +120,11 @@ export function HomeScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setActiveTab("map")}
-            style={({ pressed }) => [styles.tabItem, activeTab === "map" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+            style={({ pressed }) => [
+              styles.tabItem,
+              activeTab === "map" && styles.tabItemActive,
+              pressed && styles.tabItemPressed,
+            ]}
           >
             <Text style={[styles.tabIcon, activeTab === "map" && styles.tabIconActive]}>⌖</Text>
             <Text style={[styles.tabLabel, activeTab === "map" && styles.tabLabelActive]}>Map</Text>
@@ -128,7 +132,11 @@ export function HomeScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setActiveTab("filters")}
-            style={({ pressed }) => [styles.tabItem, activeTab === "filters" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+            style={({ pressed }) => [
+              styles.tabItem,
+              activeTab === "filters" && styles.tabItemActive,
+              pressed && styles.tabItemPressed,
+            ]}
           >
             <Text style={[styles.tabIcon, activeTab === "filters" && styles.tabIconActive]}>☰</Text>
             <Text style={[styles.tabLabel, activeTab === "filters" && styles.tabLabelActive]}>Filters</Text>
@@ -136,7 +144,11 @@ export function HomeScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setActiveTab("saved")}
-            style={({ pressed }) => [styles.tabItem, activeTab === "saved" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+            style={({ pressed }) => [
+              styles.tabItem,
+              activeTab === "saved" && styles.tabItemActive,
+              pressed && styles.tabItemPressed,
+            ]}
           >
             <Text style={[styles.tabIcon, activeTab === "saved" && styles.tabIconActive]}>☆</Text>
             <Text style={[styles.tabLabel, activeTab === "saved" && styles.tabLabelActive]}>Saved</Text>
@@ -144,7 +156,11 @@ export function HomeScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setActiveTab("profile")}
-            style={({ pressed }) => [styles.tabItem, activeTab === "profile" && styles.tabItemActive, pressed && styles.tabItemPressed]}
+            style={({ pressed }) => [
+              styles.tabItem,
+              activeTab === "profile" && styles.tabItemActive,
+              pressed && styles.tabItemPressed,
+            ]}
           >
             <Text style={[styles.tabIcon, activeTab === "profile" && styles.tabIconActive]}>◌</Text>
             <Text style={[styles.tabLabel, activeTab === "profile" && styles.tabLabelActive]}>Profile</Text>

@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,8 +11,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
 
 import { useAuth } from "../context/AuthContext";
+import { login } from "../services/authService";
+
+WebBrowser.maybeCompleteAuthSession();
 
 export function LoginScreen() {
   const { setAccessToken } = useAuth();
@@ -21,6 +26,16 @@ export function LoginScreen() {
   const [isSignupMode, setIsSignupMode] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    scopes: ["profile", "email"],
+    selectAccount: true,
+  });
 
   const titleText = useMemo(() => (isSignupMode ? "Create your account" : "Welcome"), [isSignupMode]);
   const subtitleText = useMemo(
@@ -43,6 +58,48 @@ export function LoginScreen() {
       setAccessToken(`dev-token-${Date.now()}`);
       setLoading(false);
     }, 700);
+  };
+
+  useEffect(() => {
+    if (response?.type !== "success") return;
+
+    const idToken =
+      response.params?.id_token ??
+      response.authentication?.idToken ??
+      response.params?.idToken ??
+      null;
+
+    if (!idToken) {
+      setGoogleError("Google sign-in failed to return an ID token.");
+      setGoogleLoading(false);
+      return;
+    }
+
+    login({ id_token: idToken })
+      .then((apiResponse) => {
+        if (!apiResponse.success || !apiResponse.data?.access_token) {
+          setGoogleError(apiResponse.error ?? "Google sign-in failed.");
+          setGoogleLoading(false);
+          return;
+        }
+
+        setAccessToken(apiResponse.data.access_token);
+        setGoogleLoading(false);
+      })
+      .catch(() => {
+        setGoogleError("Unable to reach the server. Try again.");
+        setGoogleLoading(false);
+      });
+  }, [response, setAccessToken]);
+
+  const handleGooglePress = () => {
+    if (!request || googleLoading) return;
+    setGoogleError(null);
+    setGoogleLoading(true);
+    promptAsync().catch(() => {
+      setGoogleError("Google sign-in was cancelled.");
+      setGoogleLoading(false);
+    });
   };
 
   return (
@@ -119,9 +176,20 @@ export function LoginScreen() {
               <View style={styles.dividerLine} />
             </View>
 
-            <Pressable style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Log In with Google</Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!request || googleLoading}
+              onPress={handleGooglePress}
+              style={[styles.secondaryButton, (!request || googleLoading) && styles.secondaryButtonDisabled]}
+            >
+              {googleLoading ? (
+                <ActivityIndicator color="#588764" />
+              ) : (
+                <Text style={styles.secondaryButtonText}>Log In with Google</Text>
+              )}
             </Pressable>
+
+            {googleError ? <Text style={styles.errorText}>{googleError}</Text> : null}
 
             <View style={styles.linkRow}>
               <Text style={styles.mutedText}>
@@ -282,10 +350,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: "center",
   },
+  secondaryButtonDisabled: {
+    opacity: 0.7,
+  },
   secondaryButtonText: {
     fontSize: 15,
     fontWeight: "700",
     color: "#588764",
+  },
+  errorText: {
+    marginTop: 6,
+    textAlign: "center",
+    color: "#8B2D2D",
+    fontSize: 12,
+    fontWeight: "600",
   },
   termsText: {
     marginTop: 8,

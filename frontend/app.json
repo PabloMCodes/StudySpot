@@ -39,7 +39,8 @@
         {
           "locationWhenInUsePermission": "StudySpot uses your location to show nearby study spots."
         }
-      ]
+      ],
+      "expo-web-browser"
     ]
   }
 }
