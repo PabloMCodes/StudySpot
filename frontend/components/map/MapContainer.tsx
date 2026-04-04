@@ -1,6 +1,7 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
 
+import type { CheckinAvailability } from "../../types/checkin";
 import type { Location, UserCoordinates } from "../../types/location";
 import { MapFallback } from "./MapFallback";
 import { MapboxPlaceholder } from "./MapboxPlaceholder";
@@ -13,6 +14,12 @@ interface MapContainerProps {
   error: string | null;
   onRetry: () => void;
   userCoordinates: UserCoordinates | null;
+  canCheckIn: boolean;
+  onOpenCheckinsForLocation: (locationId: string) => void;
+  onLoadAvailability: (locationId: string) => Promise<{
+    availability: CheckinAvailability | null;
+    error: string | null;
+  }>;
 }
 
 function getMapProvider(): MapProvider {
@@ -26,6 +33,9 @@ export function MapContainer({
   error,
   onRetry,
   userCoordinates,
+  canCheckIn,
+  onOpenCheckinsForLocation,
+  onLoadAvailability,
 }: MapContainerProps) {
   const mapProvider = getMapProvider();
 
@@ -33,9 +43,12 @@ export function MapContainer({
     <View style={styles.container}>
       {mapProvider === "mapbox" ? (
         <MapboxPlaceholder
+          canCheckIn={canCheckIn}
           error={error}
           loading={loading}
           locations={locations}
+          onOpenCheckinsForLocation={onOpenCheckinsForLocation}
+          onLoadAvailability={onLoadAvailability}
           onRetry={onRetry}
           userCoordinates={userCoordinates}
         />

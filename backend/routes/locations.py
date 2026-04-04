@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from schemas.location_schema import LocationResponse
-from services import location_service
+from services import availability_service, location_service
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -76,4 +76,25 @@ def get_location(location_id: uuid.UUID, db: Session = Depends(get_db)):
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch location"},
+        )
+
+
+@router.get("/{location_id}/availability")
+def get_location_availability(location_id: uuid.UUID, db: Session = Depends(get_db)):
+    try:
+        location_service.get_location_by_id(db, location_id)
+        availability = availability_service.get_location_availability_snapshot(
+            db,
+            location_id=location_id,
+        )
+        return {"success": True, "data": availability, "error": None}
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None, "error": str(exc)},
+        )
+    except Exception:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to fetch availability"},
         )

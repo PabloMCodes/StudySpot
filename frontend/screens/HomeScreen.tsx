@@ -4,21 +4,22 @@ import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { MapContainer } from "../components/map/MapContainer";
 import { useAuth } from "../context/AuthContext";
+import { CheckinsScreen } from "./CheckinsScreen";
 import { SavedScreen, type SavedSpotMeta } from "./SavedScreen";
 import { createCheckin, getNearbyCheckinPrompt } from "../services/checkinService";
 import {
   getCurrentCoordinatesIfPermitted,
   requestForegroundCoordinates,
 } from "../services/deviceLocationService";
-import { getLocations } from "../services/locationService";
+import { getLocationAvailability, getLocations } from "../services/locationService";
 import {
   requestNotificationPermission,
   sendCheckinPromptNotification,
 } from "../services/notificationService";
-import type { CheckinPrompt, OccupancyPercent } from "../types/checkin";
+import type { CheckinAvailability, CheckinPrompt, OccupancyPercent } from "../types/checkin";
 import type { Location, UserCoordinates } from "../types/location";
 
-type HomeTab = "map" | "filters" | "saved" | "profile";
+type HomeTab = "map" | "checkins" | "saved" | "profile";
 const TAB_BAR_RESERVED_HEIGHT = 80;
 const CHECKIN_PROMPT_POLL_MS = 60 * 1000;
 const NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
@@ -37,6 +38,7 @@ export function HomeScreen() {
   const [nearbyPrompt, setNearbyPrompt] = useState<CheckinPrompt | null>(null);
   const [checkinSubmitting, setCheckinSubmitting] = useState(false);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
+  const [preferredCheckinLocationId, setPreferredCheckinLocationId] = useState<string | null>(null);
   const lastNotificationRef = useRef<{ key: string; sentAt: number } | null>(null);
 
   const loadLocations = useCallback(async (coords: UserCoordinates | null) => {
@@ -162,8 +164,13 @@ export function HomeScreen() {
   }, [accessToken, pollCheckinPrompt]);
 
   const handleCheckinSubmit = useCallback(
-    async (occupancyPercent: OccupancyPercent) => {
-      if (!accessToken || !nearbyPrompt?.location_id) {
+    async (occupancyPercent: OccupancyPercent, locationId?: string) => {
+      const targetLocationId = locationId ?? nearbyPrompt?.location_id;
+      if (!accessToken || !targetLocationId) {
+        return;
+      }
+      if (!userCoordinates) {
+        setCheckinMessage("Turn on location services to check in.");
         return;
       }
 
@@ -171,10 +178,10 @@ export function HomeScreen() {
       setCheckinMessage(null);
       try {
         const response = await createCheckin(accessToken, {
-          location_id: nearbyPrompt.location_id,
+          location_id: targetLocationId,
           occupancy_percent: occupancyPercent,
-          lat: userCoordinates?.lat,
-          lng: userCoordinates?.lng,
+          lat: userCoordinates.lat,
+          lng: userCoordinates.lng,
         });
         if (!response.success) {
           setCheckinMessage(response.error ?? "Failed to check in");
@@ -203,6 +210,26 @@ export function HomeScreen() {
     },
     [accessToken, nearbyPrompt, userCoordinates],
   );
+
+  const loadLocationAvailability = useCallback(async (locationId: string) => {
+    const response = await getLocationAvailability(locationId);
+    if (!response.success || !response.data) {
+      return {
+        availability: null as CheckinAvailability | null,
+        error: response.error ?? "Failed to load availability",
+      };
+    }
+
+    return {
+      availability: response.data,
+      error: null,
+    };
+  }, []);
+
+  const openCheckinsForLocation = useCallback((locationId: string) => {
+    setPreferredCheckinLocationId(locationId);
+    setActiveTab("checkins");
+  }, []);
 
   const handleSaveSpot = useCallback((locationId: string) => {
     setSavedSpotsById((prev) => {
@@ -260,14 +287,15 @@ export function HomeScreen() {
       );
     }
 
-    if (activeTab === "filters") {
+    if (activeTab === "checkins") {
       return (
-        <View style={styles.placeholderSurface}>
-          <Text style={styles.placeholderTitle}>Filter Profiles</Text>
-          <Text style={styles.placeholderBody}>
-            Saved smart filters are coming next. For now, use the map and save your best spots.
-          </Text>
-        </View>
+        <CheckinsScreen
+          accessToken={accessToken}
+          locations={locations}
+          onConsumePreferredLocation={() => setPreferredCheckinLocationId(null)}
+          preferredLocationId={preferredCheckinLocationId}
+          userCoordinates={userCoordinates}
+        />
       );
     }
 
@@ -284,9 +312,12 @@ export function HomeScreen() {
 
     return (
       <MapContainer
+        canCheckIn={Boolean(accessToken)}
         error={error}
         loading={loading}
         locations={locations}
+        onOpenCheckinsForLocation={openCheckinsForLocation}
+        onLoadAvailability={loadLocationAvailability}
         onRetry={() => void loadLocations(userCoordinates)}
         userCoordinates={userCoordinates}
       />
@@ -365,15 +396,15 @@ export function HomeScreen() {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            onPress={() => setActiveTab("filters")}
+            onPress={() => setActiveTab("checkins")}
             style={({ pressed }) => [
               styles.tabItem,
-              activeTab === "filters" && styles.tabItemActive,
+              activeTab === "checkins" && styles.tabItemActive,
               pressed && styles.tabItemPressed,
             ]}
           >
-            <Text style={[styles.tabIcon, activeTab === "filters" && styles.tabIconActive]}>☰</Text>
-            <Text style={[styles.tabLabel, activeTab === "filters" && styles.tabLabelActive]}>Filters</Text>
+            <Text style={[styles.tabIcon, activeTab === "checkins" && styles.tabIconActive]}>✓</Text>
+            <Text style={[styles.tabLabel, activeTab === "checkins" && styles.tabLabelActive]}>Check-Ins</Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"

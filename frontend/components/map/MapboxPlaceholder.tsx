@@ -13,6 +13,7 @@ import {
   boundsFromCameraState,
   didBoundsChange,
 } from "../../services/locationViewportService";
+import type { CheckinAvailability } from "../../types/checkin";
 import type {
   Location,
   LocationBounds,
@@ -27,6 +28,12 @@ interface MapboxPlaceholderProps {
   error: string | null;
   onRetry: () => void;
   userCoordinates: UserCoordinates | null;
+  canCheckIn: boolean;
+  onLoadAvailability: (locationId: string) => Promise<{
+    availability: CheckinAvailability | null;
+    error: string | null;
+  }>;
+  onOpenCheckinsForLocation: (locationId: string) => void;
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
@@ -55,6 +62,9 @@ export function MapboxPlaceholder({
   error,
   onRetry,
   userCoordinates,
+  canCheckIn,
+  onLoadAvailability,
+  onOpenCheckinsForLocation,
 }: MapboxPlaceholderProps) {
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
@@ -67,6 +77,10 @@ export function MapboxPlaceholder({
   const [viewportLoading, setViewportLoading] = useState(false);
   const [viewportError, setViewportError] = useState<string | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [selectedLocationAvailability, setSelectedLocationAvailability] = useState<CheckinAvailability | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const blurSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
   const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
@@ -84,10 +98,10 @@ export function MapboxPlaceholder({
       return;
     }
 
-    if (!viewportLocations.some((location) => location.id === selectedLocationId)) {
+    if (!locations.some((location) => location.id === selectedLocationId)) {
       setSelectedLocationId(null);
     }
-  }, [selectedLocationId, viewportLocations]);
+  }, [locations, selectedLocationId]);
 
   const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
     const requestId = latestViewportRequestIdRef.current + 1;
@@ -173,9 +187,37 @@ export function MapboxPlaceholder({
   );
 
   const selectedLocation = useMemo(
-    () => filteredLocations.find((location) => location.id === selectedLocationId) ?? null,
-    [filteredLocations, selectedLocationId],
+    () =>
+      validLocations.find((location) => location.id === selectedLocationId) ??
+      locations.find((location) => location.id === selectedLocationId) ??
+      null,
+    [locations, selectedLocationId, validLocations],
   );
+
+  const autocompleteSuggestions = useMemo(() => {
+    const query = intent.queryText.trim().toLowerCase();
+    if (!query) {
+      return [] as Location[];
+    }
+
+    const ranked = locations
+      .filter((location) => {
+        const haystack = `${location.name} ${location.address ?? ""} ${location.category ?? ""}`.toLowerCase();
+        return haystack.includes(query);
+      })
+      .map((location) => {
+        const name = location.name.toLowerCase();
+        const startsWithName = name.startsWith(query);
+        const includesName = name.includes(query);
+        const score = startsWithName ? 3 : includesName ? 2 : 1;
+        return { location, score };
+      })
+      .sort((a, b) => b.score - a.score || a.location.name.localeCompare(b.location.name))
+      .slice(0, 6)
+      .map(({ location }) => location);
+
+    return ranked;
+  }, [intent.queryText, locations]);
 
   const hasActiveFilters = useMemo(
     () =>
@@ -207,6 +249,51 @@ export function MapboxPlaceholder({
     }),
     [filteredLocations],
   );
+
+  useEffect(() => {
+    return () => {
+      if (blurSearchTimeoutRef.current) {
+        clearTimeout(blurSearchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedLocation) {
+      setSelectedLocationAvailability(null);
+      setAvailabilityError(null);
+      return;
+    }
+
+    setAvailabilityLoading(true);
+    setAvailabilityError(null);
+
+    void onLoadAvailability(selectedLocation.id)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setSelectedLocationAvailability(result.availability);
+        setAvailabilityError(result.error);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setSelectedLocationAvailability(null);
+        setAvailabilityError("Failed to load AI availability");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAvailabilityLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onLoadAvailability, selectedLocation]);
 
   useEffect(() => {
     let isActive = true;
@@ -301,6 +388,44 @@ export function MapboxPlaceholder({
         return locationId;
       });
     }
+  }, []);
+
+  const onSearchFocus = useCallback(() => {
+    if (blurSearchTimeoutRef.current) {
+      clearTimeout(blurSearchTimeoutRef.current);
+      blurSearchTimeoutRef.current = null;
+    }
+    setIsSearchActive(true);
+  }, []);
+
+  const onSearchBlur = useCallback(() => {
+    blurSearchTimeoutRef.current = setTimeout(() => {
+      setIsSearchActive(false);
+      blurSearchTimeoutRef.current = null;
+    }, 120);
+  }, []);
+
+  const onSuggestionPress = useCallback((location: Location) => {
+    if (blurSearchTimeoutRef.current) {
+      clearTimeout(blurSearchTimeoutRef.current);
+      blurSearchTimeoutRef.current = null;
+    }
+
+    setIntent((prev) => ({
+      ...prev,
+      queryText: location.name,
+      categories: [],
+      openNow: false,
+      openAtMinutes: null,
+    }));
+    setIsSearchActive(false);
+    setSelectedLocationId(location.id);
+    cameraRef.current?.setCamera({
+      centerCoordinate: [location.longitude, location.latitude],
+      zoomLevel: 13,
+      animationDuration: 320,
+      animationMode: "easeTo",
+    });
   }, []);
 
   const combinedError = viewportError ?? error;
@@ -418,15 +543,33 @@ export function MapboxPlaceholder({
           <TextInput
             autoCapitalize="none"
             autoCorrect={false}
-            onBlur={() => setIsSearchActive(false)}
+            onBlur={onSearchBlur}
             onChangeText={(value) => setIntent((prev) => ({ ...prev, queryText: value }))}
-            onFocus={() => setIsSearchActive(true)}
+            onFocus={onSearchFocus}
             placeholder="Find a study spot..."
             placeholderTextColor="#8c826f"
             style={styles.searchInput}
             value={intent.queryText}
           />
         </View>
+        {isSearchActive && intent.queryText.trim().length > 0 && autocompleteSuggestions.length > 0 ? (
+          <View style={styles.searchSuggestions}>
+            {autocompleteSuggestions.map((suggestion) => (
+              <Pressable
+                key={suggestion.id}
+                onPress={() => onSuggestionPress(suggestion)}
+                style={styles.searchSuggestionItem}
+              >
+                <Text numberOfLines={1} style={styles.searchSuggestionTitle}>
+                  {suggestion.name}
+                </Text>
+                <Text numberOfLines={1} style={styles.searchSuggestionSubtitle}>
+                  {suggestion.address ?? "Address not available"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {isSearchActive ? (
@@ -591,6 +734,33 @@ export function MapboxPlaceholder({
                 : "Open now or hours unavailable"}
             </Text>
           ) : null}
+          <View style={styles.availabilityCard}>
+            <Text style={styles.availabilityTitle}>
+              {selectedLocationAvailability?.availability_label ?? "AI availability"}
+            </Text>
+            {availabilityLoading ? (
+              <Text style={styles.selectionMeta}>Updating availability...</Text>
+            ) : null}
+            {!availabilityLoading && selectedLocationAvailability ? (
+              <Text style={styles.selectionMeta}>
+                {selectedLocationAvailability.occupancy_percent}% full • Confidence{" "}
+                {Math.round(selectedLocationAvailability.confidence * 100)}%
+              </Text>
+            ) : null}
+            {availabilityError ? <Text style={styles.selectionMeta}>{availabilityError}</Text> : null}
+          </View>
+          <Pressable
+            disabled={!canCheckIn}
+            onPress={() => onOpenCheckinsForLocation(selectedLocation.id)}
+            style={({ pressed }) => [
+              styles.checkinCtaButton,
+              !canCheckIn && styles.occupancyButtonDisabled,
+              pressed && styles.occupancyButtonPressed,
+            ]}
+          >
+            <Text style={styles.checkinCtaButtonText}>Check In At This Spot</Text>
+          </Pressable>
+          {canCheckIn ? null : <Text style={styles.selectionMeta}>Sign in to check in.</Text>}
         </View>
       ) : null}
     </View>
@@ -658,6 +828,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingLeft: 12,
     paddingRight: 8,
+  },
+  searchSuggestions: {
+    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#ddd0bb",
+    backgroundColor: "rgba(255, 253, 248, 0.98)",
+    overflow: "hidden",
+  },
+  searchSuggestionItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8ddcb",
+  },
+  searchSuggestionTitle: {
+    color: "#3e3e32",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  searchSuggestionSubtitle: {
+    marginTop: 2,
+    color: "#6d6b57",
+    fontSize: 11,
   },
   searchIcon: {
     fontSize: 32,
@@ -802,5 +996,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#5d614e",
     fontWeight: "600",
+  },
+  availabilityCard: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#ddd0bb",
+    backgroundColor: "#fbf8ef",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  availabilityTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#374c2f",
+  },
+  checkinCtaButton: {
+    marginTop: 6,
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#6d7a5a",
+    backgroundColor: "#fdfbf4",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  occupancyButtonDisabled: {
+    opacity: 0.6,
+  },
+  occupancyButtonPressed: {
+    opacity: 0.75,
+  },
+  checkinCtaButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#334226",
   },
 });

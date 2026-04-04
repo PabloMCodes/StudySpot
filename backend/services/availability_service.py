@@ -16,6 +16,7 @@ from models.checkin import CheckIn, CheckInStatus
 
 RECENT_WINDOW_HOURS = 6
 HALF_LIFE_MINUTES = 90
+BASELINE_CONFIDENCE_FLOOR = 0.12
 
 # Baseline occupancy prior by hour (0-1 scale).
 BASELINE_BY_HOUR = {
@@ -90,7 +91,8 @@ def get_location_availability_snapshot(
         total_weight += weight
 
     recent_ratio = (weighted_sum / total_weight) if total_weight > 0 else baseline_ratio
-    confidence = min(0.95, 1 - math.exp(-total_weight))
+    observed_confidence = min(0.95, 1 - math.exp(-total_weight))
+    confidence = BASELINE_CONFIDENCE_FLOOR + ((1 - BASELINE_CONFIDENCE_FLOOR) * observed_confidence)
 
     blended_ratio = baseline_ratio * (1 - confidence) + recent_ratio * confidence
     occupancy_percent = max(0, min(100, int(round(blended_ratio * 100))))
@@ -99,4 +101,5 @@ def get_location_availability_snapshot(
         "occupancy_percent": occupancy_percent,
         "confidence": round(confidence, 3),
         "active_checkins": len(recent_checkins),
+        "availability_label": "AI availability",
     }
