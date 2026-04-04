@@ -20,7 +20,7 @@ import type { Location, UserCoordinates } from "../types/location";
 
 type HomeTab = "map" | "filters" | "saved" | "profile";
 const TAB_BAR_RESERVED_HEIGHT = 80;
-const CHECKIN_PROMPT_POLL_MS = 3 * 60 * 1000;
+const CHECKIN_PROMPT_POLL_MS = 60 * 1000;
 const NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
 const OCCUPANCY_OPTIONS: OccupancyPercent[] = [0, 25, 50, 75, 100];
 
