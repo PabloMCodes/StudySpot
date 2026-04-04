@@ -68,6 +68,7 @@ export function MapboxPlaceholder({
 }: MapboxPlaceholderProps) {
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
+  const hasAutoCenteredRef = useRef(false);
   const latestViewportRequestIdRef = useRef(0);
   const lastViewportBoundsRef = useRef<LocationBounds | null>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
@@ -388,10 +389,27 @@ export function MapboxPlaceholder({
       return;
     }
 
+    if (hasAutoCenteredRef.current) {
+      return;
+    }
+
     cameraRef.current.setCamera({
       centerCoordinate: [userCoordinates.lng, userCoordinates.lat],
       zoomLevel: 11.5,
       animationDuration: 450,
+      animationMode: "easeTo",
+    });
+    hasAutoCenteredRef.current = true;
+  }, [userCoordinates]);
+
+  const recenterToUser = useCallback(() => {
+    if (!userCoordinates || !cameraRef.current) {
+      return;
+    }
+    cameraRef.current.setCamera({
+      centerCoordinate: [userCoordinates.lng, userCoordinates.lat],
+      zoomLevel: 11.5,
+      animationDuration: 350,
       animationMode: "easeTo",
     });
   }, [userCoordinates]);
@@ -650,6 +668,12 @@ export function MapboxPlaceholder({
         ) : null}
       </View>
 
+      {userCoordinates ? (
+        <Pressable onPress={recenterToUser} style={styles.recenterButton}>
+          <Text style={styles.recenterButtonText}>◎</Text>
+        </Pressable>
+      ) : null}
+
       {isSearchActive ? (
         <>
           <View style={styles.filterBar}>
@@ -903,6 +927,24 @@ const styles = StyleSheet.create({
     top: 14,
     left: 12,
     right: 12,
+  },
+  recenterButton: {
+    position: "absolute",
+    right: 12,
+    bottom: 120,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: "#d8cfba",
+    backgroundColor: "rgba(253, 251, 244, 0.97)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recenterButtonText: {
+    fontSize: 18,
+    color: "#334226",
+    fontWeight: "800",
   },
   searchInputWrapper: {
     borderRadius: 16,
