@@ -15,7 +15,6 @@
   "dependencies": {
     "@rnmapbox/maps": "^10.2.10",
     "expo": "~54.0.33",
-    "expo-auth-session": "~6.3.0",
     "expo-asset": "~12.0.12",
     "expo-auth-session": "~7.0.10",
     "expo-dev-client": "~6.0.20",
