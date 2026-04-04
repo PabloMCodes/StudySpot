@@ -16,7 +16,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.studyspot.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "StudySpot uses your location to show nearby study spots."
+        "NSLocationWhenInUseUsageDescription": "StudySpot uses your location to show nearby study spots.",
+        "NSUserNotificationsUsageDescription": "StudySpot sends reminders so you can quickly check in when you arrive."
       }
     },
     "android": {
@@ -26,7 +27,8 @@
       "package": "com.studyspot.app",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -40,6 +42,7 @@
           "locationWhenInUsePermission": "StudySpot uses your location to show nearby study spots."
         }
       ],
+      "expo-notifications",
       "expo-web-browser"
     ]
   }

@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -62,6 +62,18 @@ class CheckIn(Base):
         nullable=False,
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    checked_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checkout_status: Mapped[CheckInStatus | None] = mapped_column(
+        Enum(CheckInStatus, name="checkin_status", native_enum=True),
+        nullable=True,
+    )
+    checkout_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    auto_timed_out: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
 
     user: Mapped[User] = relationship(back_populates="checkins")
     location: Mapped[Location] = relationship(back_populates="checkins")

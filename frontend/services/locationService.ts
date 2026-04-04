@@ -1,4 +1,5 @@
 import { apiRequest, type ApiResponse } from "./api";
+import type { CheckinAvailability } from "../types/checkin";
 import type { GetLocationsParams, Location, LocationBounds } from "../types/location";
 
 function buildLocationsQuery(params?: GetLocationsParams): string {
@@ -37,4 +38,8 @@ export function getLocationsInBounds(
     limit: options?.limit ?? 100,
     offset: options?.offset ?? 0,
   });
+}
+
+export function getLocationAvailability(locationId: string): Promise<ApiResponse<CheckinAvailability>> {
+  return apiRequest<CheckinAvailability>(`/locations/${encodeURIComponent(locationId)}/availability`);
 }
