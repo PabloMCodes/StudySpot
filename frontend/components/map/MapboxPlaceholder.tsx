@@ -8,7 +8,7 @@ import {
   isLocationOpenNow,
   parseNaturalLanguageToIntent,
 } from "../../services/locationFilterService";
-import { getLocationsInBounds } from "../../services/locationService";
+import { getLocations, getLocationsInBounds } from "../../services/locationService";
 import {
   boundsFromCameraState,
   didBoundsChange,
@@ -77,6 +77,8 @@ export function MapboxPlaceholder({
   const [viewportLoading, setViewportLoading] = useState(false);
   const [viewportError, setViewportError] = useState<string | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<Location[]>([]);
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false);
   const [selectedLocationAvailability, setSelectedLocationAvailability] = useState<CheckinAvailability | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
@@ -84,7 +86,8 @@ export function MapboxPlaceholder({
 
   const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
   const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
-  const styleURL = configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street;
+  const [styleURL, setStyleURL] = useState<string>(configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street);
+  const [styleLoadError, setStyleLoadError] = useState<string | null>(null);
   const initialCenterCoordinate: [number, number] = userCoordinates
     ? [userCoordinates.lng, userCoordinates.lat]
     : DEFAULT_CENTER;
@@ -98,10 +101,14 @@ export function MapboxPlaceholder({
       return;
     }
 
-    if (!locations.some((location) => location.id === selectedLocationId)) {
+    const existsInKnownPools =
+      locations.some((location) => location.id === selectedLocationId) ||
+      viewportLocations.some((location) => location.id === selectedLocationId) ||
+      autocompleteSuggestions.some((location) => location.id === selectedLocationId);
+    if (!existsInKnownPools) {
       setSelectedLocationId(null);
     }
-  }, [locations, selectedLocationId]);
+  }, [autocompleteSuggestions, locations, selectedLocationId, viewportLocations]);
 
   const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
     const requestId = latestViewportRequestIdRef.current + 1;
@@ -189,26 +196,30 @@ export function MapboxPlaceholder({
   const selectedLocation = useMemo(
     () =>
       validLocations.find((location) => location.id === selectedLocationId) ??
+      autocompleteSuggestions.find((location) => location.id === selectedLocationId) ??
       locations.find((location) => location.id === selectedLocationId) ??
       null,
-    [locations, selectedLocationId, validLocations],
+    [autocompleteSuggestions, locations, selectedLocationId, validLocations],
   );
 
-  const autocompleteSuggestions = useMemo(() => {
+  const localAutocompleteFallback = useMemo(() => {
     const query = intent.queryText.trim().toLowerCase();
     if (!query) {
       return [] as Location[];
     }
 
+    const compactQuery = query.replace(/[^a-z0-9]/g, "");
     const ranked = locations
       .filter((location) => {
         const haystack = `${location.name} ${location.address ?? ""} ${location.category ?? ""}`.toLowerCase();
-        return haystack.includes(query);
+        const compactHaystack = haystack.replace(/[^a-z0-9]/g, "");
+        return haystack.includes(query) || (compactQuery.length > 0 && compactHaystack.includes(compactQuery));
       })
       .map((location) => {
         const name = location.name.toLowerCase();
-        const startsWithName = name.startsWith(query);
-        const includesName = name.includes(query);
+        const compactName = name.replace(/[^a-z0-9]/g, "");
+        const startsWithName = name.startsWith(query) || compactName.startsWith(compactQuery);
+        const includesName = name.includes(query) || compactName.includes(compactQuery);
         const score = startsWithName ? 3 : includesName ? 2 : 1;
         return { location, score };
       })
@@ -257,6 +268,51 @@ export function MapboxPlaceholder({
       }
     };
   }, []);
+
+  useEffect(() => {
+    const query = intent.queryText.trim();
+    if (!isSearchActive || query.length < 2) {
+      setAutocompleteSuggestions([]);
+      setAutocompleteLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setAutocompleteLoading(true);
+    const timer = setTimeout(() => {
+      void getLocations({
+        q: query,
+        sort: "name",
+        limit: 8,
+      })
+        .then((response) => {
+          if (cancelled) {
+            return;
+          }
+          if (response.success && response.data) {
+            setAutocompleteSuggestions(response.data);
+            return;
+          }
+          setAutocompleteSuggestions([]);
+        })
+        .catch(() => {
+          if (cancelled) {
+            return;
+          }
+          setAutocompleteSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setAutocompleteLoading(false);
+          }
+        });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [intent.queryText, isSearchActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +377,11 @@ export function MapboxPlaceholder({
       isActive = false;
     };
   }, [accessToken]);
+
+  useEffect(() => {
+    setStyleURL(configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street);
+    setStyleLoadError(null);
+  }, [configuredStyleURL]);
 
   useEffect(() => {
     if (!userCoordinates || !cameraRef.current) {
@@ -430,6 +491,10 @@ export function MapboxPlaceholder({
 
   const combinedError = viewportError ?? error;
   const mapIsLoading = loading || viewportLoading;
+  const mapDiagnostics = styleLoadError;
+  const displayedAutocompleteSuggestions = autocompleteSuggestions.length > 0
+    ? autocompleteSuggestions
+    : localAutocompleteFallback;
 
   if (mapboxInitError) {
     return (
@@ -450,6 +515,14 @@ export function MapboxPlaceholder({
       <Mapbox.MapView
         key={styleURL}
         onCameraChanged={onCameraChanged}
+        onDidFailLoadingMap={() => {
+          if (styleURL !== Mapbox.StyleURL.Street) {
+            setStyleURL(Mapbox.StyleURL.Street);
+            setStyleLoadError("Custom Mapbox style failed to load. Switched to default Mapbox Street style.");
+            return;
+          }
+          setStyleLoadError("Mapbox failed to load map tiles.");
+        }}
         onMapIdle={onMapIdle}
         style={styles.map}
         styleURL={styleURL}
@@ -552,9 +625,9 @@ export function MapboxPlaceholder({
             value={intent.queryText}
           />
         </View>
-        {isSearchActive && intent.queryText.trim().length > 0 && autocompleteSuggestions.length > 0 ? (
+        {isSearchActive && intent.queryText.trim().length > 0 && displayedAutocompleteSuggestions.length > 0 ? (
           <View style={styles.searchSuggestions}>
-            {autocompleteSuggestions.map((suggestion) => (
+            {displayedAutocompleteSuggestions.map((suggestion) => (
               <Pressable
                 key={suggestion.id}
                 onPress={() => onSuggestionPress(suggestion)}
@@ -568,6 +641,11 @@ export function MapboxPlaceholder({
                 </Text>
               </Pressable>
             ))}
+            {autocompleteLoading ? (
+              <View style={styles.searchSuggestionLoading}>
+                <Text style={styles.searchSuggestionSubtitle}>Searching...</Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -708,6 +786,13 @@ export function MapboxPlaceholder({
         </View>
       ) : null}
 
+      {mapDiagnostics ? (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorTitle}>Map diagnostics</Text>
+          <Text style={styles.errorText}>{mapDiagnostics}</Text>
+        </View>
+      ) : null}
+
       {!mapIsLoading && !combinedError && filteredLocations.length === 0 ? (
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>No locations match these filters</Text>
@@ -842,6 +927,10 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: "#e8ddcb",
+  },
+  searchSuggestionLoading: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   searchSuggestionTitle: {
     color: "#3e3e32",

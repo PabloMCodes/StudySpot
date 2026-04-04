@@ -22,6 +22,7 @@ export interface SearchIntent {
 }
 
 export interface GetLocationsParams {
+  q?: string;
   lat?: number;
   lng?: number;
   radius_m?: number;

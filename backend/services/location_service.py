@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from models.location import Location
@@ -52,6 +52,7 @@ def list_locations_filtered(
     max_lat: float | None = None,
     min_lng: float | None = None,
     max_lng: float | None = None,
+    query_text: str | None = None,
     sort: Literal["name", "newest", "distance"] = "name",
     limit: int = 50,
     offset: int = 0,
@@ -81,6 +82,20 @@ def list_locations_filtered(
         if distance_expression is None:
             raise ValueError("lat and lng are required when radius_m is provided")
         statement = statement.where(distance_expression <= radius_m)
+
+    if query_text is not None:
+        normalized_query = query_text.strip()
+        if normalized_query:
+            pattern = f"%{normalized_query}%"
+            statement = statement.where(
+                or_(
+                    Location.name.ilike(pattern),
+                    Location.address.ilike(pattern),
+                    Location.category.ilike(pattern),
+                    Location.description.ilike(pattern),
+                    Location.editorial_summary.ilike(pattern),
+                )
+            )
 
     if sort == "distance":
         if distance_expression is None:
