@@ -34,6 +34,7 @@ export function LoginScreen() {
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     scopes: ["profile", "email"],
+    responseType: "id_token",
     selectAccount: true,
   });
 
@@ -96,7 +97,7 @@ export function LoginScreen() {
     if (!request || googleLoading) return;
     setGoogleError(null);
     setGoogleLoading(true);
-    promptAsync().catch(() => {
+    promptAsync({ useProxy: true }).catch(() => {
       setGoogleError("Google sign-in was cancelled.");
       setGoogleLoading(false);
     });
