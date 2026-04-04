@@ -14,8 +14,8 @@ export interface Checkin {
 export interface CreateCheckinPayload {
   location_id: string;
   occupancy_percent: OccupancyPercent;
-  lat?: number;
-  lng?: number;
+  lat: number;
+  lng: number;
 }
 
 export interface NearbyPromptPayload {
@@ -37,6 +37,7 @@ export interface CheckinAvailability {
   occupancy_percent: number;
   confidence: number;
   active_checkins: number;
+  availability_label?: string;
 }
 
 export interface CheckinCreateResponse {
@@ -50,4 +51,32 @@ export interface CheckinCreateResponse {
     expires_at: string;
   };
   availability: CheckinAvailability;
+}
+
+export interface CheckoutCheckinPayload {
+  checkin_id: string;
+  occupancy_percent: OccupancyPercent;
+  lat: number;
+  lng: number;
+  note?: string;
+}
+
+export interface MyCheckinSession {
+  id: string;
+  location_id: string;
+  location_name: string;
+  location_address: string | null;
+  checkin_occupancy_percent: OccupancyPercent;
+  checkout_occupancy_percent: OccupancyPercent | null;
+  note: string | null;
+  checked_in_at: string;
+  checked_out_at: string | null;
+  duration_minutes: number | null;
+  is_active: boolean;
+  auto_timed_out: boolean;
+}
+
+export interface MyCheckinsResponse {
+  active_checkin: MyCheckinSession | null;
+  history: MyCheckinSession[];
 }

@@ -1,8 +1,10 @@
 import { apiRequest, type ApiResponse } from "./api";
 import type {
   CheckinCreateResponse,
+  CheckoutCheckinPayload,
   CheckinPrompt,
   CreateCheckinPayload,
+  MyCheckinsResponse,
   NearbyPromptPayload,
 } from "../types/checkin";
 
@@ -28,6 +30,24 @@ export function getNearbyCheckinPrompt(
   payload: NearbyPromptPayload,
 ): Promise<ApiResponse<CheckinPrompt>> {
   return apiRequest<CheckinPrompt>("/checkins/prompt", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getMyCheckins(accessToken: string): Promise<ApiResponse<MyCheckinsResponse>> {
+  return apiRequest<MyCheckinsResponse>("/checkins/me", {
+    method: "GET",
+    headers: authHeaders(accessToken),
+  });
+}
+
+export function checkoutCheckin(
+  accessToken: string,
+  payload: CheckoutCheckinPayload,
+): Promise<ApiResponse<CheckinCreateResponse>> {
+  return apiRequest<CheckinCreateResponse>("/checkins/checkout", {
     method: "POST",
     headers: authHeaders(accessToken),
     body: JSON.stringify(payload),

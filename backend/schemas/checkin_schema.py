@@ -43,6 +43,40 @@ class CheckInResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CheckInCheckout(BaseModel):
+    """Input payload used when checking out from an active check-in."""
+
+    checkin_id: UUID
+    occupancy_percent: OccupancyPercent
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    note: str | None = None
+
+
+class CheckInSessionResponse(BaseModel):
+    """User-facing check-in session payload with location metadata."""
+
+    id: UUID
+    location_id: UUID
+    location_name: str
+    location_address: str | None = None
+    checkin_occupancy_percent: OccupancyPercent
+    checkout_occupancy_percent: OccupancyPercent | None = None
+    note: str | None = None
+    checked_in_at: datetime
+    checked_out_at: datetime | None = None
+    duration_minutes: int | None = None
+    is_active: bool
+    auto_timed_out: bool
+
+
+class MyCheckInsResponse(BaseModel):
+    """Payload returned by /checkins/me."""
+
+    active_checkin: CheckInSessionResponse | None
+    history: list[CheckInSessionResponse]
+
+
 class NearbyCheckInPromptRequest(BaseModel):
     """Input payload used to evaluate whether a nearby prompt should be shown."""
 
