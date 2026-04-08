@@ -42,6 +42,11 @@ class ServiceError(Exception):
     message: str
 
 
+def get_occupancy_options() -> list[OccupancyPercent]:
+    """Return the allowed occupancy buckets for check-in UI clients."""
+    return [bucket for bucket in OccupancyPercent]
+
+
 def occupancy_to_status(occupancy_percent: int | OccupancyPercent) -> CheckInStatus:
     """Convert occupancy bucket to existing check-in status enum."""
     value = int(occupancy_percent)
@@ -308,7 +313,11 @@ def get_my_checkins(
         _build_checkin_session_response(row, now_utc=now_utc)
         for row in history_rows
     ]
-    return MyCheckInsResponse(active_checkin=active_payload, history=history_payload)
+    return MyCheckInsResponse(
+        active_checkin=active_payload,
+        history=history_payload,
+        occupancy_options=get_occupancy_options(),
+    )
 
 
 def get_nearby_checkin_prompt(
@@ -326,7 +335,10 @@ def get_nearby_checkin_prompt(
         radius_meters=PROMPT_RADIUS_METERS,
     )
     if location is None:
-        return NearbyCheckInPromptResponse(should_prompt=False)
+        return NearbyCheckInPromptResponse(
+            should_prompt=False,
+            occupancy_options=get_occupancy_options(),
+        )
 
     now_utc = datetime.now(timezone.utc)
     last_checkin = _last_checkin_for_location(db, user_id=user_id, location_id=location.id)
@@ -335,6 +347,7 @@ def get_nearby_checkin_prompt(
         if remaining > 0:
             return NearbyCheckInPromptResponse(
                 should_prompt=False,
+                occupancy_options=get_occupancy_options(),
                 location_id=location.id,
                 location_name=location.name,
                 location_address=location.address,
@@ -344,6 +357,7 @@ def get_nearby_checkin_prompt(
 
     return NearbyCheckInPromptResponse(
         should_prompt=True,
+        occupancy_options=get_occupancy_options(),
         location_id=location.id,
         location_name=location.name,
         location_address=location.address,
