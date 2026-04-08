@@ -16,14 +16,18 @@ import {
   requestNotificationPermission,
   sendCheckinPromptNotification,
 } from "../services/notificationService";
-import type { CheckinAvailability, CheckinPrompt, OccupancyPercent } from "../types/checkin";
+import {
+  DEFAULT_OCCUPANCY_OPTIONS,
+  type CheckinAvailability,
+  type CheckinPrompt,
+  type OccupancyPercent,
+} from "../types/checkin";
 import type { Location, UserCoordinates } from "../types/location";
 
 type HomeTab = "map" | "checkins" | "saved" | "profile";
 const TAB_BAR_RESERVED_HEIGHT = 80;
 const CHECKIN_PROMPT_POLL_MS = 60 * 1000;
 const NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
-const OCCUPANCY_OPTIONS: OccupancyPercent[] = [0, 25, 50, 75, 100];
 
 export function HomeScreen() {
   const { accessToken, setAccessToken } = useAuth();
@@ -39,6 +43,7 @@ export function HomeScreen() {
   const [checkinSubmitting, setCheckinSubmitting] = useState(false);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
   const [preferredCheckinLocationId, setPreferredCheckinLocationId] = useState<string | null>(null);
+  const [occupancyOptions, setOccupancyOptions] = useState<OccupancyPercent[]>(DEFAULT_OCCUPANCY_OPTIONS);
   const lastNotificationRef = useRef<{ key: string; sentAt: number } | null>(null);
 
   const loadLocations = useCallback(async (coords: UserCoordinates | null) => {
@@ -123,6 +128,7 @@ export function HomeScreen() {
         return;
       }
 
+      setOccupancyOptions(response.data.occupancy_options);
       setNearbyPrompt(response.data);
       if (!response.data.should_prompt || !response.data.location_id || !response.data.location_name) {
         return;
@@ -360,7 +366,7 @@ export function HomeScreen() {
                 : "Nearby location detected"}
             </Text>
             <View style={styles.checkinOptionsRow}>
-              {OCCUPANCY_OPTIONS.map((option) => (
+              {occupancyOptions.map((option) => (
                 <Pressable
                   key={option}
                   disabled={checkinSubmitting}
