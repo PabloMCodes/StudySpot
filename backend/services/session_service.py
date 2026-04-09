@@ -140,6 +140,19 @@ def update_session_usage_percent(db: Session,*, session_id: uuid.UUID, user_id: 
     db.refresh(session)
     return session
 
+def get_active_sessions_for_location(db: Session, *, location_id: uuid.UUID) -> list[StudySession]:
+    """Fetch all active study sessions for a given location."""
+    statement = (
+        select(StudySession)
+        .where(
+            StudySession.location_id == location_id,
+            StudySession.is_active.is_(True),
+            StudySession.ends_at > datetime.now(timezone.utc),
+        )
+        .order_by(StudySession.created_at.desc())
+    )
+    return db.execute(statement).scalars().all()
+
 def location_session(db: Session, *, session_id: uuid.UUID, user_id: uuid.UUID, location_id: uuid.UUID) -> StudySession:
     """Update the location assigned to a study session."""
     

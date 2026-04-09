@@ -164,6 +164,22 @@ def update_session_usage(session_id: uuid.UUID, payload: SessionUsageUpdate, db:
         db.rollback()
         return JSONResponse(status_code=500, content={"success": False, "data": None, "error": "Failed to update session usage"})
 
+@router.get("/session?location_id={location_id}")
+def get_active_sessions_for_location(location_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        sessions = session_service.get_active_sessions_for_location(
+            db,
+            location_id=location_id,
+        )
+        data = [_serialize_session(session) for session in sessions]
+        return {"success": True, "data": data, "error": None}
+    
+    except LookupError as exc:
+        db.rollback()
+        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": str(exc)})
+    except Exception:
+        db.rollback()
+        return JSONResponse(status_code=500, content={"success": False, "data": None, "error": "Failed to fetch active sessions for location"})
 
 @router.patch("/{session_id}/location/{location_id}")
 def update_session_location(session_id: uuid.UUID, location_id: uuid.UUID, db: Session = Depends(get_db), 
