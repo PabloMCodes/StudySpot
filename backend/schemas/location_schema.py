@@ -4,7 +4,7 @@ This just means request/response data shapes for locations go here.
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,3 +51,7 @@ class LocationResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LocationInteractionCreate(BaseModel):
+    interaction_type: Literal["view", "click"]

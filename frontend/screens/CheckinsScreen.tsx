@@ -2,40 +2,42 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { checkoutCheckin, createCheckin, getMyCheckins } from "../services/checkinService";
-import type {
-  MyCheckinSession,
-  MyCheckinsResponse,
-  OccupancyPercent,
-} from "../types/checkin";
+import { endSession, getMySessions, startSession } from "../services/sessionService";
+import type { CrowdLabel } from "../types/checkin";
+import type { PersonalSession, PersonalSessionsListResponse } from "../types/session";
 import type { Location, UserCoordinates } from "../types/location";
 
 interface CheckinsScreenProps {
   accessToken: string | null;
+  onAuthExpired: () => void;
   userCoordinates: UserCoordinates | null;
   preferredLocationId: string | null;
   onConsumePreferredLocation: () => void;
   locations: Location[];
 }
 
-const OCCUPANCY_OPTIONS: OccupancyPercent[] = [0, 25, 50, 75, 100];
+const CROWD_OPTIONS: Array<{ label: string; value: CrowdLabel }> = [
+  { label: "Empty", value: "empty" },
+  { label: "Available", value: "available" },
+  { label: "Busy", value: "busy" },
+  { label: "Packed", value: "packed" },
+];
 const CHECKINS_REFRESH_MS = 30 * 1000;
+const TRANSIENT_RETRY_DELAY_MS = 600;
 
 function formatDateTime(isoValue: string): string {
-  const date = new Date(isoValue);
-  return date.toLocaleString();
+  return new Date(isoValue).toLocaleString();
 }
 
 function formatDurationMinutes(totalMinutes: number): string {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  if (hours <= 0) {
-    return `${minutes}m`;
-  }
+  if (hours <= 0) return `${minutes}m`;
   return `${hours}h ${minutes}m`;
 }
 
-function activeElapsedLabel(activeCheckin: MyCheckinSession, nowMillis: number): string {
-  const startedMillis = new Date(activeCheckin.checked_in_at).getTime();
+function activeElapsedLabel(activeSession: PersonalSession, nowMillis: number): string {
+  const startedMillis = new Date(activeSession.started_at).getTime();
   const elapsedSeconds = Math.max(0, Math.floor((nowMillis - startedMillis) / 1000));
   const hours = Math.floor(elapsedSeconds / 3600);
   const minutes = Math.floor((elapsedSeconds % 3600) / 60);
@@ -45,35 +47,96 @@ function activeElapsedLabel(activeCheckin: MyCheckinSession, nowMillis: number):
 
 export function CheckinsScreen({
   accessToken,
+  onAuthExpired,
   userCoordinates,
   preferredLocationId,
   onConsumePreferredLocation,
   locations,
 }: CheckinsScreenProps) {
-  const [checkinsData, setCheckinsData] = useState<MyCheckinsResponse | null>(null);
+  const [sessionsData, setSessionsData] = useState<PersonalSessionsListResponse | null>(null);
+  const [activeCheckinId, setActiveCheckinId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [nowMillis, setNowMillis] = useState(Date.now());
-  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(preferredLocationId);
-  const [checkoutNote, setCheckoutNote] = useState("");
+  const [startingSession, setStartingSession] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
 
-  const refreshCheckins = useCallback(async () => {
+  const [selectedLocationId, setSelectedLocationId] = useState<string | null>(preferredLocationId);
+  const [topic, setTopic] = useState("");
+  const [startNote, setStartNote] = useState("");
+  const [startCrowdLabel, setStartCrowdLabel] = useState<CrowdLabel | null>(null);
+
+  const [accomplishmentScore, setAccomplishmentScore] = useState<number>(7);
+  const [endNote, setEndNote] = useState("");
+  const [endCrowdLabel, setEndCrowdLabel] = useState<CrowdLabel | null>(null);
+
+  const isUnauthorizedError = useCallback((message: string | null | undefined) => {
+    const normalized = (message ?? "").toLowerCase();
+    return normalized.includes("unauthorized") || normalized.includes("credential") || normalized.includes("token");
+  }, []);
+
+  const isTransientRequestError = useCallback((message: string | null | undefined) => {
+    const normalized = (message ?? "").toLowerCase();
+    return (
+      normalized.includes("request failed") ||
+      normalized.includes("network request failed") ||
+      normalized.includes("timed out")
+    );
+  }, []);
+
+  const wait = useCallback((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)), []);
+
+  const selectedLocation = useMemo(
+    () => locations.find((location) => location.id === selectedLocationId) ?? null,
+    [locations, selectedLocationId],
+  );
+
+  const refreshAll = useCallback(async () => {
     if (!accessToken) {
-      setCheckinsData(null);
+      setSessionsData(null);
+      setActiveCheckinId(null);
       return;
     }
 
     setLoading(true);
-    const response = await getMyCheckins(accessToken);
-    if (!response.success || !response.data) {
-      setMessage(response.error ?? "Failed to load check-ins");
+    let sessionsResponse = await getMySessions(accessToken);
+    let checkinsResponse = await getMyCheckins(accessToken);
+
+    if (
+      isTransientRequestError(sessionsResponse.error) ||
+      isTransientRequestError(checkinsResponse.error)
+    ) {
+      await wait(TRANSIENT_RETRY_DELAY_MS);
+      if (isTransientRequestError(sessionsResponse.error)) {
+        sessionsResponse = await getMySessions(accessToken);
+      }
+      if (isTransientRequestError(checkinsResponse.error)) {
+        checkinsResponse = await getMyCheckins(accessToken);
+      }
+    }
+
+    if (!sessionsResponse.success || !sessionsResponse.data) {
+      if (isUnauthorizedError(sessionsResponse.error)) {
+        onAuthExpired();
+        setLoading(false);
+        return;
+      }
+      setMessage("Couldn’t load sessions right now. Pull back in a moment.");
       setLoading(false);
       return;
     }
 
-    setCheckinsData(response.data);
+    if (!checkinsResponse.success && isUnauthorizedError(checkinsResponse.error)) {
+      onAuthExpired();
+      setLoading(false);
+      return;
+    }
+
+    setSessionsData(sessionsResponse.data);
+    setActiveCheckinId(checkinsResponse.data?.active_checkin?.id ?? null);
+    setMessage(null);
     setLoading(false);
-  }, [accessToken]);
+  }, [accessToken, isTransientRequestError, isUnauthorizedError, onAuthExpired, wait]);
 
   useEffect(() => {
     if (preferredLocationId) {
@@ -83,111 +146,181 @@ export function CheckinsScreen({
   }, [onConsumePreferredLocation, preferredLocationId]);
 
   useEffect(() => {
-    void refreshCheckins();
-  }, [refreshCheckins]);
+    void refreshAll();
+  }, [refreshAll]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNowMillis(Date.now());
-    }, 1000);
+    const timer = setInterval(() => setNowMillis(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
     const refreshTimer = setInterval(() => {
-      void refreshCheckins();
+      void refreshAll();
     }, CHECKINS_REFRESH_MS);
     return () => clearInterval(refreshTimer);
-  }, [accessToken, refreshCheckins]);
+  }, [accessToken, refreshAll]);
 
-  const activeCheckin = checkinsData?.active_checkin ?? null;
-  const history = checkinsData?.history ?? [];
-  const selectedLocation = useMemo(
-    () => locations.find((location) => location.id === selectedLocationId) ?? null,
-    [locations, selectedLocationId],
-  );
+  const activeSession = sessionsData?.active_session ?? null;
+  const history = sessionsData?.history ?? [];
 
-  const handleCheckin = useCallback(
-    async (occupancyPercent: OccupancyPercent) => {
-      if (!accessToken) {
-        setMessage("Sign in to check in.");
-        return;
-      }
-      if (!selectedLocationId) {
-        setMessage("Select a location first.");
-        return;
-      }
-      if (!userCoordinates) {
-        setMessage("Turn on location services to check in.");
-        return;
-      }
+  const startStudySession = useCallback(async (forceWithLocation: boolean) => {
+    if (!accessToken) {
+      setMessage("Sign in to start a session.");
+      return;
+    }
+    if (!topic.trim()) {
+      setMessage("Add a topic first.");
+      return;
+    }
 
-      const response = await createCheckin(accessToken, {
+    const withLocation = forceWithLocation && Boolean(selectedLocationId);
+    if (withLocation && !userCoordinates) {
+      setMessage("Turn on location services for location sessions.");
+      return;
+    }
+    if (withLocation && startCrowdLabel === null) {
+      setMessage("Select how full it feels to start a location session.");
+      return;
+    }
+
+    setStartingSession(true);
+    if (withLocation && selectedLocationId && startCrowdLabel !== null && userCoordinates) {
+      const checkinResponse = await createCheckin(accessToken, {
         location_id: selectedLocationId,
-        occupancy_percent: occupancyPercent,
+        crowd_label: startCrowdLabel,
         lat: userCoordinates.lat,
         lng: userCoordinates.lng,
+        study_note: topic.trim(),
       });
-      if (!response.success) {
-        setMessage(response.error ?? "Failed to check in");
+      if (!checkinResponse.success) {
+        if (isUnauthorizedError(checkinResponse.error)) {
+          onAuthExpired();
+          setStartingSession(false);
+          return;
+        }
+        setMessage(checkinResponse.error ?? "Failed to start location check-in");
+        setStartingSession(false);
         return;
       }
+      setActiveCheckinId(checkinResponse.data?.checkin.id ?? null);
+    } else {
+      setActiveCheckinId(null);
+    }
 
-      const availability = response.data?.availability.occupancy_percent;
-      setMessage(
-        availability !== undefined
-          ? `Checked in. AI availability now ${availability}%.`
-          : "Checked in successfully.",
-      );
-      void refreshCheckins();
-    },
-    [accessToken, refreshCheckins, selectedLocationId, userCoordinates],
-  );
+    const sessionResponse = await startSession(accessToken, {
+      topic: topic.trim(),
+      location_id: withLocation && selectedLocationId ? selectedLocationId : undefined,
+      lat: withLocation && userCoordinates ? userCoordinates.lat : undefined,
+      lng: withLocation && userCoordinates ? userCoordinates.lng : undefined,
+      start_note: startNote.trim() ? startNote.trim() : undefined,
+    });
+    if (!sessionResponse.success) {
+      if (isUnauthorizedError(sessionResponse.error)) {
+        onAuthExpired();
+        setStartingSession(false);
+        return;
+      }
+      setMessage(sessionResponse.error ?? "Failed to start session");
+      setStartingSession(false);
+      return;
+    }
 
-  const handleCheckout = useCallback(
-    async (occupancyPercent: OccupancyPercent) => {
-      if (!accessToken) {
-        setMessage("Sign in to check out.");
-        return;
-      }
-      if (!activeCheckin) {
-        setMessage("No active check-in found.");
-        return;
-      }
+    if (sessionResponse.data?.active_session) {
+      setSessionsData((previous) => ({
+        active_session: sessionResponse.data?.active_session ?? null,
+        history: previous?.history ?? [],
+      }));
+    }
+
+    setTopic("");
+    setStartNote("");
+    setStartCrowdLabel(null);
+    setMessage(withLocation ? "Started location study session." : "Started study session.");
+    setStartingSession(false);
+    void refreshAll();
+  }, [accessToken, refreshAll, selectedLocationId, startCrowdLabel, startNote, topic, userCoordinates]);
+
+  const endStudySession = useCallback(async () => {
+    if (!accessToken) {
+      setMessage("Sign in to end a session.");
+      return;
+    }
+    if (!activeSession) {
+      setMessage("No active session found.");
+      return;
+    }
+
+    setEndingSession(true);
+    if (activeSession.is_location_verified) {
       if (!userCoordinates) {
-        setMessage("Turn on location services to check out.");
+        setMessage("Turn on location services to end this location session.");
+        setEndingSession(false);
+        return;
+      }
+      if (!activeCheckinId) {
+        setMessage("Active location check-in not found.");
+        setEndingSession(false);
+        return;
+      }
+      if (endCrowdLabel === null) {
+        setMessage("Select how full it feels before ending.");
+        setEndingSession(false);
         return;
       }
 
-      const response = await checkoutCheckin(accessToken, {
-        checkin_id: activeCheckin.id,
-        occupancy_percent: occupancyPercent,
+      const checkoutResponse = await checkoutCheckin(accessToken, {
+        checkin_id: activeCheckinId,
+        crowd_label: endCrowdLabel,
         lat: userCoordinates.lat,
         lng: userCoordinates.lng,
-        note: checkoutNote.trim() ? checkoutNote.trim() : undefined,
+        note: endNote.trim() ? endNote.trim() : undefined,
       });
-      if (!response.success) {
-        setMessage(response.error ?? "Failed to check out");
+      if (!checkoutResponse.success) {
+        if (isUnauthorizedError(checkoutResponse.error)) {
+          onAuthExpired();
+          setEndingSession(false);
+          return;
+        }
+        setMessage(checkoutResponse.error ?? "Failed to check out");
+        setEndingSession(false);
         return;
       }
+    }
 
-      setCheckoutNote("");
-      setMessage("Checked out. Session saved.");
-      void refreshCheckins();
-    },
-    [accessToken, activeCheckin, checkoutNote, refreshCheckins, userCoordinates],
-  );
+    const endResponse = await endSession(accessToken, {
+      session_id: activeSession.id,
+      accomplishment_score: accomplishmentScore,
+      end_note: endNote.trim() ? endNote.trim() : undefined,
+    });
+    if (!endResponse.success || !endResponse.data) {
+      if (isUnauthorizedError(endResponse.error)) {
+        onAuthExpired();
+        setEndingSession(false);
+        return;
+      }
+      setMessage(endResponse.error ?? "Failed to end session");
+      setEndingSession(false);
+      return;
+    }
+
+    setSessionsData(endResponse.data);
+    setEndNote("");
+    setEndCrowdLabel(null);
+    setAccomplishmentScore(7);
+    setMessage("Study session saved.");
+    setEndingSession(false);
+    void refreshAll();
+  }, [accessToken, accomplishmentScore, activeCheckinId, activeSession, endCrowdLabel, endNote, isUnauthorizedError, onAuthExpired, userCoordinates, refreshAll]);
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.heroCard}>
-        <Text style={styles.heroEyebrow}>Check-Ins</Text>
-        <Text style={styles.heroTitle}>Track your study sessions</Text>
+        <Text style={styles.heroEyebrow}>Study Session</Text>
+        <Text style={styles.heroTitle}>One seamless flow</Text>
         <Text style={styles.heroSubtitle}>
-          Check in when you arrive, check out when you leave, and keep quick notes for each session.
+          Start from anywhere. Add a location only when you're physically there.
         </Text>
       </View>
 
@@ -197,78 +330,178 @@ export function CheckinsScreen({
         </View>
       ) : null}
 
-      {activeCheckin ? (
+      {activeSession ? (
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Active Session</Text>
-          <Text style={styles.activeName}>{activeCheckin.location_name}</Text>
-          <Text style={styles.muted}>Checked in at {formatDateTime(activeCheckin.checked_in_at)}</Text>
-          <Text style={styles.timerText}>{activeElapsedLabel(activeCheckin, nowMillis)}</Text>
-          <Text style={styles.fieldLabel}>How full does it feel now?</Text>
+          <Text style={styles.sectionTitle}>Active Study Session</Text>
+          <Text style={styles.activeName}>
+            {activeSession.location_name ? activeSession.location_name : "No location"}
+          </Text>
+          <Text style={styles.muted}>Started {formatDateTime(activeSession.started_at)}</Text>
+          <Text style={styles.timerText}>{activeElapsedLabel(activeSession, nowMillis)}</Text>
+          <Text style={styles.noteText}>Topic: {activeSession.topic}</Text>
+          {activeSession.start_note ? <Text style={styles.noteText}>Start note: {activeSession.start_note}</Text> : null}
+
+          {activeSession.is_location_verified ? (
+            <>
+              <Text style={styles.fieldLabel}>How easy is it to find a seat?</Text>
+              <View style={styles.optionsRow}>
+                {CROWD_OPTIONS.map((value) => (
+                  <Pressable
+                    key={value.value}
+                    onPress={() => setEndCrowdLabel(value.value)}
+                    style={[
+                      styles.optionButton,
+                      endCrowdLabel === value.value && styles.optionButtonSelected,
+                    ]}
+                  >
+                    <Text style={styles.optionText}>{value.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : null}
+
+          <Text style={styles.fieldLabel}>How accomplished did you feel? (1-10)</Text>
           <View style={styles.optionsRow}>
-            {OCCUPANCY_OPTIONS.map((option) => (
-              <Pressable key={option} onPress={() => void handleCheckout(option)} style={styles.optionButton}>
-                <Text style={styles.optionText}>{option}%</Text>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((value) => (
+              <Pressable
+                key={value}
+                onPress={() => setAccomplishmentScore(value)}
+                style={[
+                  styles.optionButton,
+                  accomplishmentScore === value && styles.optionButtonSelected,
+                ]}
+              >
+                <Text style={styles.optionText}>{value}</Text>
               </Pressable>
             ))}
           </View>
           <TextInput
             multiline
-            onChangeText={setCheckoutNote}
-            placeholder="Session note (optional)"
+            onChangeText={setEndNote}
+            placeholder="Additional comments (optional)"
             placeholderTextColor="#8A7D6A"
             style={styles.noteInput}
-            value={checkoutNote}
+            value={endNote}
           />
+          <Pressable
+            disabled={endingSession}
+            onPress={() => void endStudySession()}
+            style={[styles.primaryButton, endingSession && styles.optionButtonDisabled]}
+          >
+            <Text style={styles.primaryButtonText}>{endingSession ? "Ending..." : "End Study Session"}</Text>
+          </Pressable>
         </View>
       ) : (
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Start A Check-In</Text>
+          <Text style={styles.sectionTitle}>Start Study Session</Text>
+          <TextInput
+            onChangeText={setTopic}
+            placeholder="Topic / what you worked on"
+            placeholderTextColor="#8A7D6A"
+            style={styles.singleLineInput}
+            value={topic}
+          />
+          <TextInput
+            multiline
+            onChangeText={setStartNote}
+            placeholder="Any start note (optional)"
+            placeholderTextColor="#8A7D6A"
+            style={styles.noteInput}
+            value={startNote}
+          />
+
           <Text style={styles.muted}>
-            {selectedLocation
-              ? `Selected: ${selectedLocation.name}`
-              : "Pick a spot from the map, then check in here."}
+            {selectedLocation ? `Using location: ${selectedLocation.name}` : "No location selected (home session)."}
           </Text>
-          <View style={styles.optionsRow}>
-            {OCCUPANCY_OPTIONS.map((option) => (
-              <Pressable
-                key={option}
-                disabled={!selectedLocationId}
-                onPress={() => void handleCheckin(option)}
-                style={({ pressed }) => [
-                  styles.optionButton,
-                  !selectedLocationId && styles.optionButtonDisabled,
-                  pressed && styles.optionButtonPressed,
-                ]}
-              >
-                <Text style={styles.optionText}>{option}%</Text>
+          {selectedLocation ? (
+            <>
+              <Text style={styles.fieldLabel}>How easy is it to find a seat?</Text>
+              <View style={styles.optionsRow}>
+                {CROWD_OPTIONS.map((value) => (
+                  <Pressable
+                    key={value.value}
+                    onPress={() => setStartCrowdLabel(value.value)}
+                    style={[
+                      styles.optionButton,
+                      startCrowdLabel === value.value && styles.optionButtonSelected,
+                    ]}
+                  >
+                    <Text style={styles.optionText}>{value.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable onPress={() => setSelectedLocationId(null)} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>Use No Location</Text>
               </Pressable>
-            ))}
+            </>
+          ) : null}
+
+          <View style={styles.optionsRow}>
+            <Pressable
+              disabled={startingSession}
+              onPress={() => void startStudySession(false)}
+              style={[styles.primaryButton, startingSession && styles.optionButtonDisabled]}
+            >
+              <Text style={styles.primaryButtonText}>{startingSession ? "Starting..." : "Start Without Location"}</Text>
+            </Pressable>
+            <Pressable
+              disabled={startingSession || !selectedLocation}
+              onPress={() => void startStudySession(true)}
+              style={[
+                styles.secondaryButton,
+                (startingSession || !selectedLocation) && styles.optionButtonDisabled,
+              ]}
+            >
+              <Text style={styles.secondaryButtonText}>Start With Selected Location</Text>
+            </Pressable>
           </View>
         </View>
       )}
 
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Session History</Text>
-        {loading ? <Text style={styles.muted}>Loading check-ins...</Text> : null}
-        {!loading && history.length === 0 ? (
-          <Text style={styles.muted}>No previous sessions yet.</Text>
-        ) : null}
+        <Text style={styles.sectionTitle}>Study History</Text>
+        {loading ? <Text style={styles.muted}>Loading sessions...</Text> : null}
+        {!loading && history.length === 0 ? <Text style={styles.muted}>No sessions yet.</Text> : null}
         {history.map((item) => (
-          <View key={item.id} style={styles.historyRow}>
-            <Text style={styles.historyTitle}>{item.location_name}</Text>
-            <Text style={styles.muted}>In: {formatDateTime(item.checked_in_at)}</Text>
-            <Text style={styles.muted}>
-              Out: {item.checked_out_at ? formatDateTime(item.checked_out_at) : "Still active"}
-            </Text>
-            <Text style={styles.muted}>
-              Duration:{" "}
-              {item.duration_minutes === null
-                ? item.auto_timed_out
-                  ? "Unavailable (auto-closed after 24h)"
-                  : "Unavailable"
-                : formatDurationMinutes(item.duration_minutes)}
-            </Text>
-            {item.note ? <Text style={styles.noteText}>Note: {item.note}</Text> : null}
+          <View key={item.id} style={styles.historyCard}>
+            <Text style={styles.historyTitle}>{item.location_name ?? "No location"}</Text>
+            <Text style={styles.historyTopic}>{item.topic}</Text>
+
+            <View style={styles.historyStatRow}>
+              <View style={styles.historyStatChip}>
+                <Text style={styles.historyStatText}>
+                  {item.duration_minutes === null
+                    ? item.auto_timed_out
+                      ? "Duration: auto-closed"
+                      : "Duration: unavailable"
+                    : `Duration: ${formatDurationMinutes(item.duration_minutes)}`}
+                </Text>
+              </View>
+              <View style={styles.historyStatChip}>
+                <Text style={styles.historyStatText}>
+                  {item.accomplishment_score !== null ? `Accomplishment: ${item.accomplishment_score}/10` : "Accomplishment: N/A"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.historyTimeBlock}>
+              <Text style={styles.historyTimeText}>Started: {formatDateTime(item.started_at)}</Text>
+              <Text style={styles.historyTimeText}>Ended: {item.ended_at ? formatDateTime(item.ended_at) : "Still active"}</Text>
+            </View>
+
+            {item.start_note ? (
+              <View style={styles.historyNoteBlock}>
+                <Text style={styles.historyNoteLabel}>Start note</Text>
+                <Text style={styles.noteText}>{item.start_note}</Text>
+              </View>
+            ) : null}
+            {item.end_note ? (
+              <View style={styles.historyNoteBlock}>
+                <Text style={styles.historyNoteLabel}>End note</Text>
+                <Text style={styles.noteText}>{item.end_note}</Text>
+              </View>
+            ) : null}
           </View>
         ))}
       </View>
@@ -359,6 +592,16 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: "wrap",
   },
+  singleLineInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2D7C4",
+    backgroundColor: "#fffaf1",
+    color: "#2f3c2b",
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
   optionButton: {
     borderRadius: 8,
     borderWidth: 1,
@@ -367,11 +610,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  optionButtonDisabled: {
-    opacity: 0.5,
+  optionButtonSelected: {
+    borderColor: "#2f5634",
+    backgroundColor: "#eaf5eb",
   },
-  optionButtonPressed: {
-    opacity: 0.8,
+  optionButtonDisabled: {
+    opacity: 0.6,
   },
   optionText: {
     fontSize: 12,
@@ -390,16 +634,96 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     textAlignVertical: "top",
   },
-  historyRow: {
-    borderTopWidth: 1,
-    borderTopColor: "#efe6d5",
-    paddingTop: 10,
-    gap: 3,
+  primaryButton: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2f5634",
+    backgroundColor: "#2f5634",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  primaryButtonText: {
+    color: "#f5f8f1",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  secondaryButton: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#6d7a5a",
+    backgroundColor: "#fdfbf4",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  secondaryButtonText: {
+    color: "#334226",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  historyCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e7dcc9",
+    backgroundColor: "#fffaf2",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
   },
   historyTitle: {
     color: "#2F4031",
     fontSize: 14,
+    fontWeight: "800",
+  },
+  historyTopic: {
+    color: "#52624a",
+    fontSize: 12,
     fontWeight: "700",
+  },
+  historyStatRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  historyStatChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d7ccb6",
+    backgroundColor: "#f6efe2",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  historyStatText: {
+    color: "#4c5d45",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  historyTimeBlock: {
+    borderRadius: 10,
+    backgroundColor: "#f4eee2",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 2,
+  },
+  historyTimeText: {
+    color: "#5b6653",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  historyNoteBlock: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e5dac5",
+    backgroundColor: "#fdf8f0",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 2,
+  },
+  historyNoteLabel: {
+    color: "#52624a",
+    fontSize: 11,
+    fontWeight: "800",
   },
   noteText: {
     color: "#4f5c42",

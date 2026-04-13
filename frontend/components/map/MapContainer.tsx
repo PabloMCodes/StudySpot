@@ -16,6 +16,7 @@ interface MapContainerProps {
   userCoordinates: UserCoordinates | null;
   canCheckIn: boolean;
   onOpenCheckinsForLocation: (locationId: string) => void;
+  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click") => Promise<void>;
   onLoadAvailability: (locationId: string) => Promise<{
     availability: CheckinAvailability | null;
     error: string | null;
@@ -35,6 +36,7 @@ export function MapContainer({
   userCoordinates,
   canCheckIn,
   onOpenCheckinsForLocation,
+  onLogLocationInteraction,
   onLoadAvailability,
 }: MapContainerProps) {
   const mapProvider = getMapProvider();
@@ -47,6 +49,7 @@ export function MapContainer({
           error={error}
           loading={loading}
           locations={locations}
+          onLogLocationInteraction={onLogLocationInteraction}
           onOpenCheckinsForLocation={onOpenCheckinsForLocation}
           onLoadAvailability={onLoadAvailability}
           onRetry={onRetry}

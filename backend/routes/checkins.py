@@ -3,6 +3,8 @@ Check-in route file.
 This just means endpoints for posting crowd updates go here.
 """
 
+import traceback
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -34,7 +36,7 @@ def create_checkin(
         )
         data = checkin_service.build_checkin_response(
             checkin,
-            requested_occupancy_percent=int(payload.occupancy_percent),
+            requested_crowd_label=payload.crowd_label,
         )
         availability = availability_service.get_location_availability_snapshot(
             db,
@@ -56,6 +58,7 @@ def create_checkin(
         )
     except Exception:
         db.rollback()
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to create check-in"},
@@ -77,6 +80,7 @@ def get_checkin_prompt(
         )
         return {"success": True, "data": prompt.model_dump(mode="json"), "error": None}
     except Exception:
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to evaluate nearby prompt"},
@@ -96,6 +100,7 @@ def get_my_checkins(
         return {"success": True, "data": data.model_dump(mode="json"), "error": None}
     except Exception:
         db.rollback()
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch check-ins"},
@@ -116,7 +121,7 @@ def checkout_checkin(
         )
         data = checkin_service.build_checkin_response(
             checkin,
-            requested_occupancy_percent=int(payload.occupancy_percent),
+            requested_crowd_label=payload.crowd_label,
         )
         availability = availability_service.get_location_availability_snapshot(
             db,
@@ -138,6 +143,7 @@ def checkout_checkin(
         )
     except Exception:
         db.rollback()
+        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to check out"},

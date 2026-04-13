@@ -1,11 +1,11 @@
-export type OccupancyPercent = 0 | 25 | 50 | 75 | 100;
+export type CrowdLabel = "empty" | "available" | "busy" | "packed";
 export type BusynessLevel = "plenty" | "filling" | "packed";
 
 export interface Checkin {
   id: string;
   userId: string;
   locationId: string;
-  occupancyPercent: OccupancyPercent;
+  crowdLabel: CrowdLabel;
   status: BusynessLevel;
   createdAt: string;
   expiresAt: string;
@@ -13,9 +13,10 @@ export interface Checkin {
 
 export interface CreateCheckinPayload {
   location_id: string;
-  occupancy_percent: OccupancyPercent;
+  crowd_label: CrowdLabel;
   lat: number;
   lng: number;
+  study_note?: string;
 }
 
 export interface NearbyPromptPayload {
@@ -45,7 +46,7 @@ export interface CheckinCreateResponse {
     id: string;
     user_id: string;
     location_id: string;
-    occupancy_percent: OccupancyPercent;
+    crowd_label: CrowdLabel;
     status: BusynessLevel;
     created_at: string;
     expires_at: string;
@@ -55,7 +56,7 @@ export interface CheckinCreateResponse {
 
 export interface CheckoutCheckinPayload {
   checkin_id: string;
-  occupancy_percent: OccupancyPercent;
+  crowd_label: CrowdLabel;
   lat: number;
   lng: number;
   note?: string;
@@ -66,9 +67,10 @@ export interface MyCheckinSession {
   location_id: string;
   location_name: string;
   location_address: string | null;
-  checkin_occupancy_percent: OccupancyPercent;
-  checkout_occupancy_percent: OccupancyPercent | null;
-  note: string | null;
+  checkin_crowd_label: CrowdLabel;
+  checkout_crowd_label: CrowdLabel | null;
+  study_note: string | null;
+  checkout_note: string | null;
   checked_in_at: string;
   checked_out_at: string | null;
   duration_minutes: number | null;

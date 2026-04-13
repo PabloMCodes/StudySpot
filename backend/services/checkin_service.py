@@ -15,13 +15,13 @@ from sqlalchemy.orm import Session, selectinload
 from models.checkin import CheckIn, CheckInStatus
 from models.location import Location
 from schemas.checkin_schema import (
+    CrowdLabel,
     CheckInCreate,
     CheckInCheckout,
     CheckInResponse,
     CheckInSessionResponse,
     MyCheckInsResponse,
     NearbyCheckInPromptResponse,
-    OccupancyPercent,
 )
 from services import location_service
 from services.distance_service import haversine_meters
@@ -42,23 +42,26 @@ class ServiceError(Exception):
     message: str
 
 
-def occupancy_to_status(occupancy_percent: int | OccupancyPercent) -> CheckInStatus:
-    """Convert occupancy bucket to existing check-in status enum."""
-    value = int(occupancy_percent)
-    if value <= 25:
-        return CheckInStatus.plenty
-    if value <= 50:
-        return CheckInStatus.filling
-    return CheckInStatus.packed
+LABEL_TO_STATUS: dict[CrowdLabel, CheckInStatus] = {
+    "empty": CheckInStatus.plenty,
+    "available": CheckInStatus.plenty,
+    "busy": CheckInStatus.filling,
+    "packed": CheckInStatus.packed,
+}
+
+STATUS_TO_FALLBACK_LABEL: dict[CheckInStatus, CrowdLabel] = {
+    CheckInStatus.plenty: "available",
+    CheckInStatus.filling: "busy",
+    CheckInStatus.packed: "packed",
+}
 
 
-def status_to_occupancy(status: CheckInStatus) -> OccupancyPercent:
-    """Convert persisted status enum back to occupancy bucket for API clients."""
-    if status == CheckInStatus.plenty:
-        return OccupancyPercent.twenty_five
-    if status == CheckInStatus.filling:
-        return OccupancyPercent.fifty
-    return OccupancyPercent.seventy_five
+def crowd_label_to_status(crowd_label: CrowdLabel) -> CheckInStatus:
+    return LABEL_TO_STATUS[crowd_label]
+
+
+def status_to_fallback_label(status: CheckInStatus) -> CrowdLabel:
+    return STATUS_TO_FALLBACK_LABEL[status]
 
 
 def _last_checkin_for_location(
@@ -189,7 +192,9 @@ def create_checkin(
     checkin = CheckIn(
         user_id=user_id,
         location_id=payload.location_id,
-        status=occupancy_to_status(payload.occupancy_percent),
+        status=crowd_label_to_status(payload.crowd_label),
+        crowd_label=payload.crowd_label,
+        checkin_note=payload.study_note.strip() if payload.study_note and payload.study_note.strip() else None,
         expires_at=now_utc + timedelta(minutes=CHECKIN_EXPIRATION_MINUTES),
     )
     db.add(checkin)
@@ -227,7 +232,8 @@ def checkout_checkin(
 
     note = payload.note.strip() if payload.note is not None else None
     checkin.checked_out_at = now_utc
-    checkin.checkout_status = occupancy_to_status(payload.occupancy_percent)
+    checkin.checkout_status = crowd_label_to_status(payload.crowd_label)
+    checkin.checkout_crowd_label = payload.crowd_label
     checkin.checkout_note = note if note else None
     checkin.auto_timed_out = False
     db.commit()
@@ -235,18 +241,18 @@ def checkout_checkin(
     return checkin
 
 
-def build_checkin_response(checkin: CheckIn, *, requested_occupancy_percent: int | None = None) -> CheckInResponse:
+def build_checkin_response(checkin: CheckIn, *, requested_crowd_label: CrowdLabel | None = None) -> CheckInResponse:
     """Build API response schema without exposing raw ORM object."""
-    occupancy_percent = (
-        OccupancyPercent(requested_occupancy_percent)
-        if requested_occupancy_percent is not None
-        else status_to_occupancy(checkin.status)
+    crowd_label = (
+        requested_crowd_label
+        if requested_crowd_label is not None
+        else (checkin.crowd_label or status_to_fallback_label(checkin.status))
     )
     return CheckInResponse(
         id=checkin.id,
         user_id=checkin.user_id,
         location_id=checkin.location_id,
-        occupancy_percent=occupancy_percent,
+        crowd_label=crowd_label,
         status=checkin.status.value,
         created_at=checkin.created_at,
         expires_at=checkin.expires_at,
@@ -254,7 +260,10 @@ def build_checkin_response(checkin: CheckIn, *, requested_occupancy_percent: int
 
 
 def _build_checkin_session_response(checkin: CheckIn, *, now_utc: datetime) -> CheckInSessionResponse:
-    checkout_percent = status_to_occupancy(checkin.checkout_status) if checkin.checkout_status is not None else None
+    checkout_label = (
+        checkin.checkout_crowd_label
+        or (status_to_fallback_label(checkin.checkout_status) if checkin.checkout_status is not None else None)
+    )
     duration_minutes: int | None = None
     if checkin.checked_out_at is not None and not checkin.auto_timed_out:
         elapsed_seconds = max(0, int((checkin.checked_out_at - checkin.created_at).total_seconds()))
@@ -267,9 +276,10 @@ def _build_checkin_session_response(checkin: CheckIn, *, now_utc: datetime) -> C
         location_id=checkin.location_id,
         location_name=location_name,
         location_address=location_address,
-        checkin_occupancy_percent=status_to_occupancy(checkin.status),
-        checkout_occupancy_percent=checkout_percent,
-        note=checkin.checkout_note,
+        checkin_crowd_label=checkin.crowd_label or status_to_fallback_label(checkin.status),
+        checkout_crowd_label=checkout_label,
+        study_note=checkin.checkin_note,
+        checkout_note=checkin.checkout_note,
         checked_in_at=checkin.created_at,
         checked_out_at=checkin.checked_out_at,
         duration_minutes=duration_minutes,

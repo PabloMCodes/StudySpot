@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Text, func, text
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +56,8 @@ class CheckIn(Base):
         Enum(CheckInStatus, name="checkin_status", native_enum=True),
         nullable=False,
     )
+    crowd_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    checkin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -67,6 +69,7 @@ class CheckIn(Base):
         Enum(CheckInStatus, name="checkin_status", native_enum=True),
         nullable=True,
     )
+    checkout_crowd_label: Mapped[str | None] = mapped_column(String(20), nullable=True)
     checkout_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     auto_timed_out: Mapped[bool] = mapped_column(
         Boolean,

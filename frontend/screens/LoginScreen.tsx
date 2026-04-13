@@ -28,6 +28,7 @@ export function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
@@ -51,13 +52,8 @@ export function LoginScreen() {
   const handlePrimaryPress = () => {
     if (!isValid || loading) return;
 
-    setLoading(true);
-
-    // Temporary local auth gate until backend auth is connected to this screen.
-    setTimeout(() => {
-      setAccessToken(`dev-token-${Date.now()}`);
-      setLoading(false);
-    }, 700);
+    setLoading(false);
+    setAuthMessage("Use Google login to get a valid session token.");
   };
 
   useEffect(() => {
@@ -95,6 +91,7 @@ export function LoginScreen() {
   const handleGooglePress = () => {
     if (!request || googleLoading) return;
     setGoogleError(null);
+    setAuthMessage(null);
     setGoogleLoading(true);
     promptAsync().catch(() => {
       setGoogleError("Google sign-in was cancelled.");
@@ -190,6 +187,7 @@ export function LoginScreen() {
             </Pressable>
 
             {googleError ? <Text style={styles.errorText}>{googleError}</Text> : null}
+            {authMessage ? <Text style={styles.errorText}>{authMessage}</Text> : null}
 
             <View style={styles.linkRow}>
               <Text style={styles.mutedText}>

@@ -41,6 +41,10 @@ The post-login home screen is now map-first and uses a map provider switch:
 - `EXPO_PUBLIC_MAP_PROVIDER=fallback` (default) keeps the app fully usable in Expo Go.
 - `EXPO_PUBLIC_MAP_PROVIDER=mapbox` enables the Mapbox path, which currently falls back to list mode until Mapbox rendering is wired.
 
+Use npx expo start --tunnel --dev-client 
+when working at school or annoying internet!!!!
+
+
 Recommended team workflow:
 
 1. Everyone keeps using Expo Go with `fallback`.

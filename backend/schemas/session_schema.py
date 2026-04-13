@@ -31,3 +31,46 @@ class SessionResponse(BaseModel):
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PersonalSessionStart(BaseModel):
+    """Start a personal study session."""
+
+    topic: str = Field(min_length=1, max_length=200)
+    location_id: UUID | None = None
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    start_note: str | None = None
+
+
+class PersonalSessionEnd(BaseModel):
+    """End a personal study session."""
+
+    session_id: UUID
+    accomplishment_score: int = Field(ge=1, le=10)
+    end_note: str | None = None
+
+
+class PersonalSessionResponse(BaseModel):
+    """Personal session response payload."""
+
+    id: UUID
+    location_id: UUID | None = None
+    location_name: str | None = None
+    topic: str
+    start_note: str | None = None
+    accomplishment_score: int | None = None
+    end_note: str | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+    duration_minutes: int | None = None
+    is_active: bool
+    is_location_verified: bool
+    auto_timed_out: bool
+
+
+class PersonalSessionsListResponse(BaseModel):
+    """Personal sessions list payload for /sessions/me."""
+
+    active_session: PersonalSessionResponse | None
+    history: list[PersonalSessionResponse]
