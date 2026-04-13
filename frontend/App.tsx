@@ -1,10 +1,13 @@
 import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 
 import { OpeningScreen } from "./components/OpeningScreen";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { HomeScreen } from "./screens/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
+
+WebBrowser.maybeCompleteAuthSession();
 
 function AppShell() {
   const { isAuthenticated } = useAuth();

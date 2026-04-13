@@ -1,5 +1,7 @@
 export type CrowdLabel = "empty" | "available" | "busy" | "packed";
 export type BusynessLevel = "plenty" | "filling" | "packed";
+export type OccupancyPercent = 0 | 25 | 50 | 75 | 100;
+export const DEFAULT_OCCUPANCY_OPTIONS: OccupancyPercent[] = [0, 25, 50, 75, 100];
 
 export interface Checkin {
   id: string;
@@ -26,6 +28,7 @@ export interface NearbyPromptPayload {
 
 export interface CheckinPrompt {
   should_prompt: boolean;
+  occupancy_options: OccupancyPercent[];
   location_id: string | null;
   location_name: string | null;
   location_address: string | null;
@@ -81,4 +84,5 @@ export interface MyCheckinSession {
 export interface MyCheckinsResponse {
   active_checkin: MyCheckinSession | null;
   history: MyCheckinSession[];
+  occupancy_options: OccupancyPercent[];
 }

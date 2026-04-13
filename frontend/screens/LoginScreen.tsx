@@ -35,6 +35,7 @@ export function LoginScreen() {
     iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     scopes: ["profile", "email"],
+    responseType: "id_token",
     selectAccount: true,
   });
 

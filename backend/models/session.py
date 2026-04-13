@@ -25,7 +25,10 @@ class StudySession(Base):
 
     __tablename__ = "study_sessions"
     __table_args__ = (
-        CheckConstraint("max_participants > 0", name="ck_study_sessions_max_participants"),
+        CheckConstraint(
+            "current_usage_percent IN (0, 25, 50, 75, 100)",
+            name="ck_study_sessions_current_usage_percent",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -66,6 +69,18 @@ class StudySession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    current_usage_percent: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    public: Mapped[bool] = mapped_column( 
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
     )
 
 

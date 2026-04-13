@@ -69,6 +69,7 @@ class MyCheckInsResponse(BaseModel):
 
     active_checkin: CheckInSessionResponse | None
     history: list[CheckInSessionResponse]
+    occupancy_options: list[OccupancyPercent]
 
 
 class NearbyCheckInPromptRequest(BaseModel):
@@ -82,6 +83,7 @@ class NearbyCheckInPromptResponse(BaseModel):
     """Prompt payload returned when user is near a location."""
 
     should_prompt: bool
+    occupancy_options: list[OccupancyPercent]
     location_id: UUID | None = None
     location_name: str | None = None
     location_address: str | None = None

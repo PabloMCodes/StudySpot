@@ -1,3 +1,5 @@
+export type UsagePercent = 0 | 25 | 50 | 75 | 100;
+
 export interface PersonalSession {
   id: string;
   location_id: string | null;
@@ -31,4 +33,34 @@ export interface EndPersonalSessionPayload {
   session_id: string;
   accomplishment_score: number;
   end_note?: string;
+}
+
+export interface StudySession {
+  id: string;
+  location_id: string;
+  creator_id: string;
+  title: string;
+  created_at: string;
+  ends_at: string;
+  max_participants: number;
+  participants: number;
+  is_active: boolean;
+  public: boolean;
+  current_usage_percent: UsagePercent;
+}
+
+export interface CreateStudySessionPayload {
+  location_id: string;
+  title: string;
+  ends_at: string;
+  max_participants: number;
+  current_usage_percent: UsagePercent;
+}
+
+export interface SessionUsageUpdatePayload {
+  current_usage_percent: UsagePercent;
+}
+
+export interface SessionActionResponse {
+  message: string;
 }

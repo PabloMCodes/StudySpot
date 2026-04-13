@@ -55,6 +55,10 @@ STATUS_TO_FALLBACK_LABEL: dict[CheckInStatus, CrowdLabel] = {
     CheckInStatus.packed: "packed",
 }
 
+def get_occupancy_options() -> list[CrowdLabel]:
+    """Backward-compatible helper name returning the label options used by the UI."""
+    return ["empty", "available", "busy", "packed"]
+
 
 def crowd_label_to_status(crowd_label: CrowdLabel) -> CheckInStatus:
     return LABEL_TO_STATUS[crowd_label]
@@ -318,7 +322,11 @@ def get_my_checkins(
         _build_checkin_session_response(row, now_utc=now_utc)
         for row in history_rows
     ]
-    return MyCheckInsResponse(active_checkin=active_payload, history=history_payload)
+    return MyCheckInsResponse(
+        active_checkin=active_payload,
+        history=history_payload,
+        occupancy_options=get_occupancy_options(),
+    )
 
 
 def get_nearby_checkin_prompt(
@@ -336,7 +344,10 @@ def get_nearby_checkin_prompt(
         radius_meters=PROMPT_RADIUS_METERS,
     )
     if location is None:
-        return NearbyCheckInPromptResponse(should_prompt=False)
+        return NearbyCheckInPromptResponse(
+            should_prompt=False,
+            occupancy_options=get_occupancy_options(),
+        )
 
     now_utc = datetime.now(timezone.utc)
     last_checkin = _last_checkin_for_location(db, user_id=user_id, location_id=location.id)
@@ -345,6 +356,7 @@ def get_nearby_checkin_prompt(
         if remaining > 0:
             return NearbyCheckInPromptResponse(
                 should_prompt=False,
+                occupancy_options=get_occupancy_options(),
                 location_id=location.id,
                 location_name=location.name,
                 location_address=location.address,
@@ -354,6 +366,7 @@ def get_nearby_checkin_prompt(
 
     return NearbyCheckInPromptResponse(
         should_prompt=True,
+        occupancy_options=get_occupancy_options(),
         location_id=location.id,
         location_name=location.name,
         location_address=location.address,

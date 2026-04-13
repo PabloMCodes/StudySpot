@@ -2,9 +2,19 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { checkoutCheckin, createCheckin, getMyCheckins } from "../services/checkinService";
-import { endSession, getMySessions, startSession } from "../services/sessionService";
+import {
+  createSession,
+  endSession,
+  getActiveSession,
+  getMySessions,
+  getSession,
+  joinSession,
+  leaveSession,
+  startSession,
+  updateSessionUsage,
+} from "../services/sessionService";
 import type { CrowdLabel } from "../types/checkin";
-import type { PersonalSession, PersonalSessionsListResponse } from "../types/session";
+import type { PersonalSession, PersonalSessionsListResponse, StudySession } from "../types/session";
 import type { Location, UserCoordinates } from "../types/location";
 
 interface CheckinsScreenProps {
@@ -45,6 +55,21 @@ function activeElapsedLabel(activeSession: PersonalSession, nowMillis: number): 
   return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+function crowdLabelToUsagePercent(label: CrowdLabel): 0 | 25 | 50 | 75 | 100 {
+  switch (label) {
+    case "empty":
+      return 0;
+    case "available":
+      return 25;
+    case "busy":
+      return 75;
+    case "packed":
+      return 100;
+    default:
+      return 50;
+  }
+}
+
 export function CheckinsScreen({
   accessToken,
   onAuthExpired,
@@ -69,6 +94,10 @@ export function CheckinsScreen({
   const [accomplishmentScore, setAccomplishmentScore] = useState<number>(7);
   const [endNote, setEndNote] = useState("");
   const [endCrowdLabel, setEndCrowdLabel] = useState<CrowdLabel | null>(null);
+  const [studySession, setStudySession] = useState<StudySession | null>(null);
+  const [sessionTitle, setSessionTitle] = useState("");
+  const [joinSessionId, setJoinSessionId] = useState("");
+  const [sessionSubmitting, setSessionSubmitting] = useState(false);
 
   const isUnauthorizedError = useCallback((message: string | null | undefined) => {
     const normalized = (message ?? "").toLowerCase();
@@ -162,8 +191,32 @@ export function CheckinsScreen({
     return () => clearInterval(refreshTimer);
   }, [accessToken, refreshAll]);
 
+  useEffect(() => {
+    if (!accessToken) {
+      setStudySession(null);
+      setJoinSessionId("");
+      return;
+    }
+
+    let isActive = true;
+    const loadActiveSession = async () => {
+      const response = await getActiveSession(accessToken);
+      if (!isActive || !response.success) {
+        return;
+      }
+      setStudySession(response.data ?? null);
+      setJoinSessionId(response.data?.id ?? "");
+    };
+
+    void loadActiveSession();
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken]);
+
   const activeSession = sessionsData?.active_session ?? null;
   const history = sessionsData?.history ?? [];
+  const defaultSessionTitle = selectedLocation ? `${selectedLocation.name} Study Session` : "Study Session";
 
   const startStudySession = useCallback(async (forceWithLocation: boolean) => {
     if (!accessToken) {
@@ -314,6 +367,151 @@ export function CheckinsScreen({
     void refreshAll();
   }, [accessToken, accomplishmentScore, activeCheckinId, activeSession, endCrowdLabel, endNote, isUnauthorizedError, onAuthExpired, userCoordinates, refreshAll]);
 
+  const handleCreateStudySession = useCallback(
+    async (crowdLabel: CrowdLabel) => {
+      if (!accessToken) {
+        setMessage("Sign in to create a study session.");
+        return;
+      }
+      if (!selectedLocationId) {
+        setMessage("Select a location before creating a study session.");
+        return;
+      }
+
+      setSessionSubmitting(true);
+      try {
+        const response = await createSession(accessToken, {
+          location_id: selectedLocationId,
+          title: sessionTitle.trim() || defaultSessionTitle,
+          ends_at: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+          max_participants: 6,
+          current_usage_percent: crowdLabelToUsagePercent(crowdLabel),
+        });
+        if (!response.success || !response.data) {
+          setMessage(response.error ?? "Failed to create study session");
+          return;
+        }
+        setStudySession(response.data);
+        setJoinSessionId(response.data.id);
+        setSessionTitle("");
+        setMessage("Study group session created.");
+      } finally {
+        setSessionSubmitting(false);
+      }
+    },
+    [accessToken, defaultSessionTitle, selectedLocationId, sessionTitle],
+  );
+
+  const handleJoinStudySession = useCallback(
+    async (crowdLabel: CrowdLabel) => {
+      if (!accessToken) {
+        setMessage("Sign in to join a study session.");
+        return;
+      }
+      const trimmedSessionId = joinSessionId.trim();
+      if (!trimmedSessionId) {
+        setMessage("Paste a session ID to join.");
+        return;
+      }
+
+      setSessionSubmitting(true);
+      try {
+        const response = await joinSession(accessToken, trimmedSessionId, {
+          current_usage_percent: crowdLabelToUsagePercent(crowdLabel),
+        });
+        if (!response.success) {
+          setMessage(response.error ?? "Failed to join study session");
+          return;
+        }
+        const sessionResponse = await getSession(accessToken, trimmedSessionId);
+        if (!sessionResponse.success || !sessionResponse.data) {
+          setMessage(sessionResponse.error ?? "Joined session, but could not load details.");
+          return;
+        }
+        setStudySession(sessionResponse.data);
+        setJoinSessionId(trimmedSessionId);
+        setMessage(response.data?.message ?? "Joined study session.");
+      } finally {
+        setSessionSubmitting(false);
+      }
+    },
+    [accessToken, joinSessionId],
+  );
+
+  const handleLoadStudySession = useCallback(async () => {
+    if (!accessToken) {
+      setMessage("Sign in to load a study session.");
+      return;
+    }
+    const trimmedSessionId = joinSessionId.trim();
+    if (!trimmedSessionId) {
+      setMessage("Paste a session ID to load.");
+      return;
+    }
+
+    setSessionSubmitting(true);
+    try {
+      const response = await getSession(accessToken, trimmedSessionId);
+      if (!response.success || !response.data) {
+        setMessage(response.error ?? "Failed to load study session");
+        return;
+      }
+      setStudySession(response.data);
+      setMessage("Study session loaded.");
+    } finally {
+      setSessionSubmitting(false);
+    }
+  }, [accessToken, joinSessionId]);
+
+  const handleUpdateStudySessionUsage = useCallback(
+    async (crowdLabel: CrowdLabel) => {
+      if (!accessToken || !studySession) {
+        setMessage("Create or join a study session first.");
+        return;
+      }
+      setSessionSubmitting(true);
+      try {
+        const response = await updateSessionUsage(accessToken, studySession.id, {
+          current_usage_percent: crowdLabelToUsagePercent(crowdLabel),
+        });
+        if (!response.success || !response.data) {
+          setMessage(response.error ?? "Failed to update study session usage");
+          return;
+        }
+        setStudySession(response.data);
+        setMessage("Study session usage updated.");
+      } finally {
+        setSessionSubmitting(false);
+      }
+    },
+    [accessToken, studySession],
+  );
+
+  const handleLeaveStudySession = useCallback(
+    async (crowdLabel: CrowdLabel) => {
+      if (!accessToken || !studySession) {
+        setMessage("No active study session to leave.");
+        return;
+      }
+      setSessionSubmitting(true);
+      try {
+        const response = await leaveSession(accessToken, studySession.id, {
+          current_usage_percent: crowdLabelToUsagePercent(crowdLabel),
+        });
+        if (!response.success) {
+          setMessage(response.error ?? "Failed to leave study session");
+          return;
+        }
+        setStudySession(null);
+        setJoinSessionId("");
+        setMessage(response.data?.message ?? "Left study session.");
+      } finally {
+        setSessionSubmitting(false);
+      }
+    },
+    [accessToken, studySession],
+  );
+
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.heroCard}>
@@ -458,6 +656,107 @@ export function CheckinsScreen({
           </View>
         </View>
       )}
+
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Study Group Session</Text>
+        <Text style={styles.muted}>
+          Create a group session for your selected location, or load one with a session ID.
+        </Text>
+        {studySession ? (
+          <>
+            <Text style={styles.activeName}>{studySession.title}</Text>
+            <Text style={styles.muted}>Session ID: {studySession.id}</Text>
+            <Text style={styles.muted}>
+              Participants: {studySession.participants}/{studySession.max_participants}
+            </Text>
+            <Text style={styles.muted}>Ends: {formatDateTime(studySession.ends_at)}</Text>
+            <Text style={styles.fieldLabel}>Update usage</Text>
+            <View style={styles.optionsRow}>
+              {CROWD_OPTIONS.map((value) => (
+                <Pressable
+                  key={`session-usage-${value.value}`}
+                  disabled={sessionSubmitting}
+                  onPress={() => void handleUpdateStudySessionUsage(value.value)}
+                  style={[styles.optionButton, sessionSubmitting && styles.optionButtonDisabled]}
+                >
+                  <Text style={styles.optionText}>{value.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.fieldLabel}>Leave session</Text>
+            <View style={styles.optionsRow}>
+              {CROWD_OPTIONS.map((value) => (
+                <Pressable
+                  key={`session-leave-${value.value}`}
+                  disabled={sessionSubmitting}
+                  onPress={() => void handleLeaveStudySession(value.value)}
+                  style={[styles.optionButton, sessionSubmitting && styles.optionButtonDisabled]}
+                >
+                  <Text style={styles.optionText}>{value.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : (
+          <>
+            <TextInput
+              onChangeText={setSessionTitle}
+              placeholder={defaultSessionTitle}
+              placeholderTextColor="#8A7D6A"
+              style={styles.singleLineInput}
+              value={sessionTitle}
+            />
+            <Text style={styles.fieldLabel}>Create session with current usage</Text>
+            <View style={styles.optionsRow}>
+              {CROWD_OPTIONS.map((value) => (
+                <Pressable
+                  key={`session-create-${value.value}`}
+                  disabled={!selectedLocationId || sessionSubmitting}
+                  onPress={() => void handleCreateStudySession(value.value)}
+                  style={[
+                    styles.optionButton,
+                    (!selectedLocationId || sessionSubmitting) && styles.optionButtonDisabled,
+                  ]}
+                >
+                  <Text style={styles.optionText}>{value.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setJoinSessionId}
+              placeholder="Paste session ID"
+              placeholderTextColor="#8A7D6A"
+              style={styles.singleLineInput}
+              value={joinSessionId}
+            />
+            <Pressable
+              disabled={!joinSessionId.trim() || sessionSubmitting}
+              onPress={() => void handleLoadStudySession()}
+              style={[styles.secondaryButton, (!joinSessionId.trim() || sessionSubmitting) && styles.optionButtonDisabled]}
+            >
+              <Text style={styles.secondaryButtonText}>Load Session Details</Text>
+            </Pressable>
+            <Text style={styles.fieldLabel}>Join session with current usage</Text>
+            <View style={styles.optionsRow}>
+              {CROWD_OPTIONS.map((value) => (
+                <Pressable
+                  key={`session-join-${value.value}`}
+                  disabled={!joinSessionId.trim() || sessionSubmitting}
+                  onPress={() => void handleJoinStudySession(value.value)}
+                  style={[
+                    styles.optionButton,
+                    (!joinSessionId.trim() || sessionSubmitting) && styles.optionButtonDisabled,
+                  ]}
+                >
+                  <Text style={styles.optionText}>{value.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        )}
+      </View>
 
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Study History</Text>
