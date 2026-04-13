@@ -13,8 +13,8 @@ from database import get_db
 from dependencies.auth_dependency import get_current_user
 from models.user import User
 from schemas.checkin_schema import (
-    CheckInCreate,
     CheckInCheckout,
+    CheckInCreate,
     NearbyCheckInPromptRequest,
 )
 from services import availability_service, checkin_service
