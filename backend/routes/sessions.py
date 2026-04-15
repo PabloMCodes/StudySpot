@@ -217,7 +217,7 @@ def get_my_active_session(db: Session = Depends(get_db), current_user: User = De
 
 
 @router.get("/{session_id}")
-def get_session(session_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_session(session_id: uuid.UUID, db: Session = Depends(get_db)):
     try:
         session = session_service.get_study_session(
             db,
@@ -312,11 +312,10 @@ def update_session_usage(
         return JSONResponse(status_code=500, content={"success": False, "data": None, "error": "Failed to update session usage"})
 
 
-@router.get("/session")
+@router.get("/session_active")
 def get_active_sessions_for_location(
     location_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
         sessions = session_service.get_active_sessions_for_location(

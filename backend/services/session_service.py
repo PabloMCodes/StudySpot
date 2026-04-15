@@ -479,6 +479,7 @@ def get_active_sessions_for_location(db: Session, *, location_id: uuid.UUID) -> 
             StudySession.location_id == location_id,
             StudySession.is_active.is_(True),
             StudySession.ends_at > now_utc,
+            StudySession.creator_id.isnot(None),
         )
         .order_by(StudySession.created_at.desc())
     )
