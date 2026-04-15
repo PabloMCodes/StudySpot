@@ -59,7 +59,7 @@ export interface CheckinCreateResponse {
 
 export interface CheckoutCheckinPayload {
   checkin_id: string;
-  crowd_label: CrowdLabel;
+  crowd_label?: CrowdLabel;
   lat: number;
   lng: number;
   note?: string;

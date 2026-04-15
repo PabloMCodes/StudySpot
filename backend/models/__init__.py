@@ -5,6 +5,7 @@ from .checkin import CheckIn
 from .comment import Comment
 from .follow import Follow
 from .session import PersonalStudySession, StudySession
+from .session_photo import PhotoFeedback, SessionPhoto
 from .user_location import UserLocation
 
 __all__ = [
@@ -16,5 +17,7 @@ __all__ = [
     "Follow",
     "StudySession",
     "PersonalStudySession",
+    "SessionPhoto",
+    "PhotoFeedback",
     "UserLocation",
 ]

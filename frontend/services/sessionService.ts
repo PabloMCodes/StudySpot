@@ -1,5 +1,6 @@
 import { apiRequest, type ApiResponse } from "./api";
 import type {
+  CompletePersonalSessionPayload,
   CreateStudySessionPayload,
   EndPersonalSessionPayload,
   PersonalSessionsListResponse,
@@ -42,6 +43,18 @@ export function endSession(
   payload: EndPersonalSessionPayload,
 ): Promise<ApiResponse<PersonalSessionsListResponse>> {
   return apiRequest<PersonalSessionsListResponse>("/sessions/end", {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function completeSession(
+  accessToken: string,
+  sessionId: string,
+  payload: CompletePersonalSessionPayload,
+): Promise<ApiResponse<PersonalSessionsListResponse>> {
+  return apiRequest<PersonalSessionsListResponse>(`/sessions/${sessionId}/complete`, {
     method: "POST",
     headers: authHeaders(accessToken),
     body: JSON.stringify(payload),

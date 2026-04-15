@@ -17,6 +17,7 @@ from database import Base
 
 if TYPE_CHECKING:
     from models.location import Location
+    from models.session_photo import SessionPhoto
     from models.user import User
 
 
@@ -142,6 +143,8 @@ class PersonalStudySession(Base):
     start_note: Mapped[str | None] = mapped_column(String, nullable=True)
     end_note: Mapped[str | None] = mapped_column(String, nullable=True)
     accomplishment_score: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    focus_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -163,3 +166,8 @@ class PersonalStudySession(Base):
 
     user: Mapped[User] = relationship()
     location: Mapped[Location | None] = relationship()
+    photos: Mapped[list[SessionPhoto]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

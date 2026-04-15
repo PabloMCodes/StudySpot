@@ -231,15 +231,17 @@ def checkout_checkin(
         raise ServiceError(status_code=404, message="Location not found")
 
     distance_meters = haversine_meters(payload.lat, payload.lng, location.latitude, location.longitude)
-    if distance_meters > CHECKIN_VALIDATION_RADIUS_METERS:
-        raise ServiceError(status_code=400, message="You must be near this location to check out.")
+    is_remote_checkout = distance_meters > CHECKIN_VALIDATION_RADIUS_METERS
 
     note = payload.note.strip() if payload.note is not None else None
+    effective_checkout_label = payload.crowd_label or checkin.crowd_label or status_to_fallback_label(checkin.status)
     checkin.checked_out_at = now_utc
-    checkin.checkout_status = crowd_label_to_status(payload.crowd_label)
-    checkin.checkout_crowd_label = payload.crowd_label
+    checkin.checkout_status = crowd_label_to_status(effective_checkout_label)
+    checkin.checkout_crowd_label = effective_checkout_label
     checkin.checkout_note = note if note else None
-    checkin.auto_timed_out = False
+    # Allow remote checkout so users don't get stuck with a stale active check-in.
+    # We flag it as auto_timed_out to distinguish it from a verified on-site checkout.
+    checkin.auto_timed_out = is_remote_checkout
     db.commit()
     db.refresh(checkin)
     return checkin

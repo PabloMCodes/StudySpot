@@ -72,6 +72,14 @@ class PersonalSessionEnd(BaseModel):
     end_note: str | None = None
 
 
+class PersonalSessionComplete(BaseModel):
+    rating: int | None = Field(default=None, ge=1, le=5)
+    focus_level: int | None = Field(default=None, ge=1, le=4)
+    accomplishment_score: int | None = Field(default=None, ge=1, le=10)
+    note: str | None = None
+    image_url: str | None = None
+
+
 class PersonalSessionResponse(BaseModel):
     """Personal session response payload."""
 
@@ -81,7 +89,11 @@ class PersonalSessionResponse(BaseModel):
     topic: str
     start_note: str | None = None
     accomplishment_score: int | None = None
+    rating: int | None = None
+    focus_level: int | None = None
     end_note: str | None = None
+    photo_url: str | None = None
+    photo_urls: list[str] = []
     started_at: datetime
     ended_at: datetime | None = None
     duration_minutes: int | None = None

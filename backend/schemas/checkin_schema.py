@@ -40,7 +40,7 @@ class CheckInCheckout(BaseModel):
     """Input payload used when checking out from an active check-in."""
 
     checkin_id: UUID
-    crowd_label: CrowdLabel
+    crowd_label: CrowdLabel | None = None
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
     note: str | None = None
@@ -69,7 +69,7 @@ class MyCheckInsResponse(BaseModel):
 
     active_checkin: CheckInSessionResponse | None
     history: list[CheckInSessionResponse]
-    occupancy_options: list[OccupancyPercent]
+    occupancy_options: list[CrowdLabel]
 
 
 class NearbyCheckInPromptRequest(BaseModel):
@@ -83,7 +83,7 @@ class NearbyCheckInPromptResponse(BaseModel):
     """Prompt payload returned when user is near a location."""
 
     should_prompt: bool
-    occupancy_options: list[OccupancyPercent]
+    occupancy_options: list[CrowdLabel]
     location_id: UUID | None = None
     location_name: str | None = None
     location_address: str | None = None

@@ -9,6 +9,7 @@ import { MapboxPlaceholder } from "./MapboxPlaceholder";
 type MapProvider = "mapbox" | "fallback";
 
 interface MapContainerProps {
+  accessToken: string | null;
   locations: Location[];
   loading: boolean;
   error: string | null;
@@ -29,6 +30,7 @@ function getMapProvider(): MapProvider {
 }
 
 export function MapContainer({
+  accessToken,
   locations,
   loading,
   error,
@@ -45,6 +47,7 @@ export function MapContainer({
     <View style={styles.container}>
       {mapProvider === "mapbox" ? (
         <MapboxPlaceholder
+          accessToken={accessToken}
           canCheckIn={canCheckIn}
           error={error}
           loading={loading}

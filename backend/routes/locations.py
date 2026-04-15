@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from schemas.location_schema import LocationInteractionCreate, LocationResponse
-from services import availability_service, location_interaction_service, location_service
+from schemas.photo_schema import LocationPhotosResponse, SessionPhotoResponse
+from services import availability_service, location_interaction_service, location_service, photo_service
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -145,4 +146,45 @@ def log_location_interaction(
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to log location interaction"},
+        )
+
+
+@router.get("/{location_id}/photos")
+def get_location_photos(location_id: uuid.UUID, db: Session = Depends(get_db)):
+    try:
+        most_helpful, recent = photo_service.get_location_photos(db, location_id=location_id)
+        payload = LocationPhotosResponse(
+            most_helpful=(
+                SessionPhotoResponse(
+                    id=most_helpful.id,
+                    session_id=most_helpful.session_id,
+                    user_id=most_helpful.user_id,
+                    location_id=most_helpful.location_id,
+                    image_url=most_helpful.image_url,
+                    helpful_count=most_helpful.helpful_count,
+                    created_at=most_helpful.created_at,
+                )
+                if most_helpful is not None
+                else None
+            ),
+            recent_photos=[
+                SessionPhotoResponse(
+                    id=item.id,
+                    session_id=item.session_id,
+                    user_id=item.user_id,
+                    location_id=item.location_id,
+                    image_url=item.image_url,
+                    helpful_count=item.helpful_count,
+                    created_at=item.created_at,
+                )
+                for item in recent
+            ],
+        )
+        return {"success": True, "data": payload.model_dump(mode="json"), "error": None}
+    except ValueError as exc:
+        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": str(exc)})
+    except Exception:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to fetch location photos"},
         )

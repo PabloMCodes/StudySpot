@@ -15,11 +15,13 @@ from sqlalchemy.orm import Session, selectinload
 from models.location import Location
 from models.session import PersonalStudySession, SessionParticipant, StudySession
 from schemas.session_schema import (
+    PersonalSessionComplete,
     PersonalSessionEnd,
     PersonalSessionResponse,
     PersonalSessionsListResponse,
     PersonalSessionStart,
 )
+from services import photo_service
 from services.distance_service import haversine_meters
 
 SESSION_VALIDATION_RADIUS_METERS = 400
@@ -131,6 +133,11 @@ def end_personal_session(
 
 def _to_response(session: PersonalStudySession) -> PersonalSessionResponse:
     location_name = session.location.name if session.location else None
+    ordered_photo_urls = [
+        photo.image_url
+        for photo in sorted(session.photos, key=lambda item: item.created_at, reverse=True)
+    ] if session.photos else []
+    latest_photo_url = ordered_photo_urls[0] if ordered_photo_urls else None
     duration_minutes: int | None = None
     if session.ended_at is not None and not session.auto_timed_out:
         elapsed_seconds = max(0, int((session.ended_at - session.started_at).total_seconds()))
@@ -143,7 +150,11 @@ def _to_response(session: PersonalStudySession) -> PersonalSessionResponse:
         topic=session.topic,
         start_note=session.start_note,
         accomplishment_score=session.accomplishment_score,
+        rating=session.rating,
+        focus_level=session.focus_level,
         end_note=session.end_note,
+        photo_url=latest_photo_url,
+        photo_urls=ordered_photo_urls,
         started_at=session.started_at,
         ended_at=session.ended_at,
         duration_minutes=duration_minutes,
@@ -165,7 +176,10 @@ def get_my_personal_sessions(
 
     statement = (
         select(PersonalStudySession)
-        .options(selectinload(PersonalStudySession.location))
+        .options(
+            selectinload(PersonalStudySession.location),
+            selectinload(PersonalStudySession.photos),
+        )
         .where(PersonalStudySession.user_id == user_id)
         .order_by(PersonalStudySession.started_at.desc())
         .limit(SESSIONS_HISTORY_LIMIT)
@@ -177,6 +191,51 @@ def get_my_personal_sessions(
     active_session = _to_response(active_row) if active_row is not None else None
     history = [_to_response(row) for row in history_rows]
     return PersonalSessionsListResponse(active_session=active_session, history=history)
+
+
+def complete_personal_session(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    payload: PersonalSessionComplete,
+) -> PersonalStudySession:
+    """
+    End a personal session with optional rating/focus/note/photo.
+    All fields are optional to keep the completion flow fast.
+    """
+    now_utc = datetime.now(timezone.utc)
+    _auto_close_stale_sessions(db, user_id=user_id, now_utc=now_utc)
+
+    session = db.get(PersonalStudySession, session_id)
+    if session is None or session.user_id != user_id:
+        raise ServiceError(status_code=404, message="Session not found")
+    if session.ended_at is not None:
+        raise ServiceError(status_code=400, message="Session is already ended")
+
+    session.ended_at = now_utc
+    session.rating = payload.rating if payload.rating is not None else session.rating
+    session.focus_level = payload.focus_level if payload.focus_level is not None else session.focus_level
+    session.accomplishment_score = (
+        payload.accomplishment_score
+        if payload.accomplishment_score is not None
+        else session.accomplishment_score
+    )
+    note = payload.note.strip() if payload.note else None
+    session.end_note = note if note else session.end_note
+    session.auto_timed_out = False
+
+    if payload.image_url:
+        photo_service.create_session_photo(
+            db,
+            session_id=session.id,
+            user_id=user_id,
+            image_url=payload.image_url,
+        )
+
+    db.commit()
+    db.refresh(session)
+    return session
 
 
 # Group session logic

@@ -14,6 +14,7 @@ from database import get_db
 from dependencies.auth_dependency import get_current_user
 from models.user import User
 from schemas.session_schema import (
+    PersonalSessionComplete,
     PersonalSessionEnd,
     PersonalSessionStart,
     SessionCreate,
@@ -116,6 +117,40 @@ def end_session(
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to end session"},
+        )
+
+
+@router.post("/{session_id}/complete")
+def complete_session(
+    session_id: uuid.UUID,
+    payload: PersonalSessionComplete,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        session_service.complete_personal_session(
+            db,
+            user_id=current_user.id,
+            session_id=session_id,
+            payload=payload,
+        )
+        sessions_payload = session_service.get_my_personal_sessions(
+            db,
+            user_id=current_user.id,
+        )
+        return {"success": True, "data": sessions_payload.model_dump(mode="json"), "error": None}
+    except session_service.ServiceError as exc:
+        db.rollback()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "data": None, "error": exc.message},
+        )
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to complete session"},
         )
 
 

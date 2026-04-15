@@ -306,6 +306,7 @@ export function HomeScreen() {
 
     return (
         <MapContainer
+          accessToken={accessToken}
           canCheckIn={Boolean(accessToken)}
           error={error}
           loading={loading}

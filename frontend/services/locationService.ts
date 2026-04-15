@@ -23,6 +23,10 @@ export function getLocations(params?: GetLocationsParams): Promise<ApiResponse<L
   return apiRequest<Location[]>(`/locations${buildLocationsQuery(params)}`);
 }
 
+export function getLocationById(locationId: string): Promise<ApiResponse<Location>> {
+  return apiRequest<Location>(`/locations/${encodeURIComponent(locationId)}`);
+}
+
 export function getLocationsInBounds(
   bounds: LocationBounds,
   options?: Pick<GetLocationsParams, "sort" | "limit" | "offset" | "lat" | "lng">,

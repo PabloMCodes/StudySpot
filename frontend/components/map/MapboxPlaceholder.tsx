@@ -5,8 +5,8 @@ import { ActivityIndicator, Animated, Easing, Linking, Pressable, ScrollView, St
 import {
   applySearchIntent,
   DEFAULT_SEARCH_INTENT,
-  isLocationOpenNow,
 } from "../../services/locationFilterService";
+import { LocationDetailScreen } from "../../screens/LocationDetailScreen";
 import { getLocations, getLocationsInBounds } from "../../services/locationService";
 import {
   boundsFromCameraState,
@@ -22,6 +22,7 @@ import type {
 import { MapFallback } from "./MapFallback";
 
 interface MapboxPlaceholderProps {
+  accessToken: string | null;
   locations: Location[];
   loading: boolean;
   error: string | null;
@@ -96,6 +97,7 @@ function getAppleMapsUrl(location: Location): string {
 }
 
 export function MapboxPlaceholder({
+  accessToken,
   locations,
   loading,
   error,
@@ -131,7 +133,7 @@ export function MapboxPlaceholder({
   const [topAvailabilityById, setTopAvailabilityById] = useState<Record<string, CheckinAvailability>>({});
   const blurSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
+  const mapboxAccessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
   const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
   const [styleURL, setStyleURL] = useState<string>(configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street);
   const [styleLoadError, setStyleLoadError] = useState<string | null>(null);
@@ -495,14 +497,14 @@ export function MapboxPlaceholder({
   useEffect(() => {
     let isActive = true;
 
-    if (!accessToken) {
+    if (!mapboxAccessToken) {
       setMapboxInitError("Missing EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN in frontend/.env.local");
       return () => {
         isActive = false;
       };
     }
 
-    Mapbox.setAccessToken(accessToken)
+    Mapbox.setAccessToken(mapboxAccessToken)
       .then(() => {
         if (isActive) {
           setMapboxInitError(null);
@@ -517,7 +519,7 @@ export function MapboxPlaceholder({
     return () => {
       isActive = false;
     };
-  }, [accessToken]);
+  }, [mapboxAccessToken]);
 
   useEffect(() => {
     setStyleURL(configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street);
@@ -921,45 +923,18 @@ export function MapboxPlaceholder({
                 </Text>
                 {isExpanded ? (
                   <View style={styles.rankedExpandedDetails}>
-                    <Text style={styles.rankedDetailText}>
-                      {availabilityPercent === null
-                        ? "Seat availability estimate is unavailable right now."
-                        : `Seat availability: ${availabilityPercent}% (higher means it should be easier to find a seat).`}
-                    </Text>
-                    <Text style={styles.rankedDetailText}>{location.address ?? "Address not available"}</Text>
-                    <Text style={styles.rankedDetailText}>
-                      {isLocationOpenNow(location, new Date()) === false ? "Closed now" : "Open now or hours unavailable"}
-                    </Text>
-                    <Text style={styles.rankedDetailText}>
-                      Confidence: {Math.round((topAvailabilityById[location.id]?.confidence ?? 0.5) * 100)}% (higher means we have stronger recent data)
-                    </Text>
-                      <View style={styles.mapLinksRow}>
-                        <Pressable
-                          onPress={() => openExternalMap(getGoogleMapsUrl(location))}
-                          style={styles.mapLinkChip}
-                        >
-                          <Text style={styles.mapLinkText}>Google Maps</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => openExternalMap(getAppleMapsUrl(location))}
-                          style={styles.mapLinkChip}
-                        >
-                          <Text style={styles.mapLinkText}>Apple Maps</Text>
-                        </Pressable>
-                      </View>
-                      <Pressable
-                        disabled={!canCheckIn}
-                        onPress={() => onOpenCheckinsForLocation(location.id)}
-                        style={({ pressed }) => [
-                          styles.checkinCtaButton,
-                          !canCheckIn && styles.occupancyButtonDisabled,
-                          pressed && styles.occupancyButtonPressed,
-                        ]}
-                      >
-                        <Text style={styles.checkinCtaButtonText}>Check In At This Spot</Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
+                    <LocationDetailScreen
+                      accessToken={accessToken}
+                      availabilityPercent={availabilityPercent}
+                      canCheckIn={canCheckIn}
+                      confidencePercent={Math.round((topAvailabilityById[location.id]?.confidence ?? 0.5) * 100)}
+                      location={location}
+                      onCheckInPress={() => onOpenCheckinsForLocation(location.id)}
+                      onOpenAppleMaps={() => openExternalMap(getAppleMapsUrl(location))}
+                      onOpenGoogleMaps={() => openExternalMap(getGoogleMapsUrl(location))}
+                    />
+                  </View>
+                ) : null}
                 </Pressable>
               );
             })}
@@ -1327,29 +1302,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     gap: 4,
   },
-  rankedDetailText: {
-    fontSize: 11,
-    color: "#4f5d48",
-    fontWeight: "600",
-  },
-  mapLinksRow: {
-    marginTop: 2,
-    flexDirection: "row",
-    gap: 8,
-  },
-  mapLinkChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#b9ccb2",
-    backgroundColor: "#f1f8ed",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  mapLinkText: {
-    fontSize: 11,
-    color: "#2f5634",
-    fontWeight: "700",
-  },
   rankedCardTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1413,26 +1365,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: "#374c2f",
-  },
-  checkinCtaButton: {
-    marginTop: 6,
-    alignSelf: "flex-start",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#6d7a5a",
-    backgroundColor: "#fdfbf4",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  occupancyButtonDisabled: {
-    opacity: 0.6,
-  },
-  occupancyButtonPressed: {
-    opacity: 0.75,
-  },
-  checkinCtaButtonText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#334226",
   },
 });
