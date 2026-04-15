@@ -13,11 +13,43 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
-from schemas.location_schema import LocationInteractionCreate, LocationResponse
+from dependencies.auth_dependency import get_current_user
+from models.user import User
+from schemas.location_schema import (
+    LocationInteractionCreate,
+    LocationResponse,
+    SavedLocationMutationResponse,
+    SavedLocationResponse,
+)
 from schemas.photo_schema import LocationPhotosResponse, SessionPhotoResponse
 from services import availability_service, location_interaction_service, location_service, photo_service
 
 router = APIRouter(prefix="/locations", tags=["locations"])
+
+
+@router.get("/saved")
+def list_saved_locations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        saved_locations = location_service.list_saved_locations_for_user(
+            db,
+            user_id=current_user.id,
+        )
+        data = [
+            SavedLocationResponse(
+                location=LocationResponse.model_validate(saved_location.location),
+                saved_at=saved_location.saved_at,
+            ).model_dump(mode="json")
+            for saved_location in saved_locations
+        ]
+        return {"success": True, "data": data, "error": None}
+    except Exception:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to fetch saved locations"},
+        )
 
 
 @router.get("")
@@ -90,6 +122,62 @@ def get_location(location_id: uuid.UUID, db: Session = Depends(get_db)):
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch location"},
+        )
+
+
+@router.post("/{location_id}/save")
+def save_location(location_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        saved_location = location_service.save_location_for_user(
+            db,
+            user_id=current_user.id,
+            location_id=location_id,
+        )
+        data = SavedLocationMutationResponse(
+            location_id=location_id,
+            is_saved=True,
+            saved_at=saved_location.saved_at,
+        ).model_dump(mode="json")
+        return {"success": True, "data": data, "error": None}
+    except ValueError as exc:
+        db.rollback()
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None, "error": str(exc)},
+        )
+    except Exception:
+        db.rollback()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to save location"},
+        )
+
+
+@router.delete("/{location_id}/save")
+def unsave_location(location_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    try:
+        location_service.remove_saved_location_for_user(
+            db,
+            user_id=current_user.id,
+            location_id=location_id,
+        )
+        data = SavedLocationMutationResponse(
+            location_id=location_id,
+            is_saved=False,
+            saved_at=None,
+        ).model_dump(mode="json")
+        return {"success": True, "data": data, "error": None}
+    except ValueError as exc:
+        db.rollback()
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None, "error": str(exc)},
+        )
+    except Exception:
+        db.rollback()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to unsave location"},
         )
 
 

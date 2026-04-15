@@ -6,12 +6,15 @@ This means location read logic lives here, not in routes.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from models.location import Location
+from models.user_location import UserLocation
 
 EARTH_RADIUS_METERS = 6_371_000
 MAX_RECOMMENDATIONS = 15
@@ -70,6 +73,14 @@ EXCLUDED_NAME_TOKENS = {
 INCLUDED_HINT_TOKENS = {"cafe", "coffee", "library", "bookstore", "study", "restaurant"}
 
 
+@dataclass
+class SavedLocationRecord:
+    """Normalized saved location payload returned by bookmark service helpers."""
+
+    location: Location
+    saved_at: datetime
+
+
 def _distance_meters_expression(lat: float, lng: float):
     """Return a SQL expression that calculates great-circle distance in meters."""
     return EARTH_RADIUS_METERS * 2 * func.asin(
@@ -94,6 +105,57 @@ def get_location_by_id(db: Session, location_id: uuid.UUID) -> Location:
     if location is None:
         raise ValueError("Location not found")
     return location
+
+# Save a location for a user, returning the existing bookmark when already saved
+def save_location_for_user(db: Session,*, user_id: uuid.UUID, location_id: uuid.UUID) -> SavedLocationRecord:
+    location = get_location_by_id(db, location_id)
+    saved_location = db.get(
+        UserLocation,
+        {
+            "user_id": user_id,
+            "location_id": location_id,
+        },
+    )
+
+    if saved_location is None:
+        saved_location = UserLocation(user_id=user_id, location_id=location_id)
+        db.add(saved_location)
+        db.commit()
+        db.refresh(saved_location)
+
+    return SavedLocationRecord(location=location, saved_at=saved_location.saved_at)
+
+# Remove a saved location for a user. Returns whether a bookmark was deleted
+def remove_saved_location_for_user(db: Session,*, user_id: uuid.UUID, location_id: uuid.UUID) -> bool:
+    get_location_by_id(db, location_id)
+    saved_location = db.get(
+        UserLocation,
+        {
+            "user_id": user_id,
+            "location_id": location_id,
+        },
+    )
+    if saved_location is None:
+        return False
+
+    db.delete(saved_location)
+    db.commit()
+    return True
+
+# Return a user's saved locations ordered by most recently saved first
+def list_saved_locations_for_user(db: Session, *, user_id: uuid.UUID) -> list[SavedLocationRecord]:
+    statement = (
+        select(UserLocation)
+        .options(selectinload(UserLocation.location))
+        .where(UserLocation.user_id == user_id)
+        .order_by(UserLocation.saved_at.desc())
+    )
+    saved_rows = list(db.scalars(statement).all())
+    return [
+        SavedLocationRecord(location=row.location, saved_at=row.saved_at)
+        for row in saved_rows
+        if row.location is not None
+    ]
 
 
 def list_locations_filtered(

@@ -53,5 +53,20 @@ class LocationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SavedLocationResponse(BaseModel):
+    """Saved location entry returned for bookmark endpoints."""
+
+    location: LocationResponse
+    saved_at: datetime
+
+
+class SavedLocationMutationResponse(BaseModel):
+    """Bookmark mutation result returned after save/unsave actions."""
+
+    location_id: UUID
+    is_saved: bool
+    saved_at: datetime | None = None
+
+
 class LocationInteractionCreate(BaseModel):
     interaction_type: Literal["view", "click"]
