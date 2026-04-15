@@ -10,11 +10,29 @@ from fastapi.testclient import TestClient
 from database import get_db
 from dependencies.auth_dependency import get_current_user
 from routes import sessions
+from services import session_service
 
 
 class FakeDB:
     def rollback(self) -> None:
         return None
+
+
+class ServiceFakeDB:
+    def __init__(self, session) -> None:
+        self.session = session
+        self.commit_calls = 0
+        self.refresh_calls = 0
+
+    def get(self, model, session_id):
+        return self.session if self.session.id == session_id else None
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+
+    def refresh(self, session) -> None:
+        assert session is self.session
+        self.refresh_calls += 1
 
 
 def _build_client(current_user_id: uuid.UUID) -> TestClient:
@@ -367,3 +385,79 @@ def test_get_session_returns_404_when_missing(monkeypatch) -> None:
         "data": None,
         "error": "Study session not found",
     }
+
+
+def test_get_study_session_marks_expired_session_inactive() -> None:
+    session_id = uuid.uuid4()
+    creator_id = uuid.uuid4()
+    location_id = uuid.uuid4()
+    expired_session = _session_stub(
+        session_id=session_id,
+        creator_id=creator_id,
+        location_id=location_id,
+    )
+    expired_session.ends_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db = ServiceFakeDB(expired_session)
+
+    session = session_service.get_study_session(db, session_id=session_id)
+
+    assert session.is_active is False
+    assert db.commit_calls == 1
+    assert db.refresh_calls == 1
+
+
+def test_join_study_session_rejects_expired_session() -> None:
+    session_id = uuid.uuid4()
+    creator_id = uuid.uuid4()
+    location_id = uuid.uuid4()
+    joining_user_id = uuid.uuid4()
+    expired_session = _session_stub(
+        session_id=session_id,
+        creator_id=creator_id,
+        location_id=location_id,
+    )
+    expired_session.ends_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db = ServiceFakeDB(expired_session)
+
+    try:
+        session_service.join_study_session(
+            db,
+            session_id=session_id,
+            user_id=joining_user_id,
+            current_usage_percent=50,
+        )
+        assert False, "Expected ValueError for expired session"
+    except ValueError as exc:
+        assert str(exc) == "Session is not active"
+
+    assert expired_session.is_active is False
+    assert db.commit_calls == 1
+    assert db.refresh_calls == 1
+
+
+def test_update_session_usage_rejects_expired_session() -> None:
+    session_id = uuid.uuid4()
+    creator_id = uuid.uuid4()
+    location_id = uuid.uuid4()
+    expired_session = _session_stub(
+        session_id=session_id,
+        creator_id=creator_id,
+        location_id=location_id,
+    )
+    expired_session.ends_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db = ServiceFakeDB(expired_session)
+
+    try:
+        session_service.update_session_usage_percent(
+            db,
+            session_id=session_id,
+            user_id=creator_id,
+            current_usage_percent=100,
+        )
+        assert False, "Expected ValueError for expired session"
+    except ValueError as exc:
+        assert str(exc) == "Session is not active"
+
+    assert expired_session.is_active is False
+    assert db.commit_calls == 1
+    assert db.refresh_calls == 1

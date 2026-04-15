@@ -254,6 +254,71 @@ def _normalize_future_datetime(value: datetime) -> datetime:
     return value
 
 
+def _expire_study_session_if_needed(
+    db: Session,
+    *,
+    session: StudySession,
+    now_utc: datetime | None = None,
+) -> bool:
+    """Mark a group study session inactive once its scheduled end time has passed."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    if not session.is_active or session.ends_at > now_utc:
+        return False
+
+    session.is_active = False
+    db.commit()
+    db.refresh(session)
+    return True
+
+
+def _expire_user_study_sessions(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    now_utc: datetime | None = None,
+) -> None:
+    """Close expired group sessions for a user before returning active-session views."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    statement = (
+        select(StudySession)
+        .join(SessionParticipant, SessionParticipant.session_id == StudySession.id)
+        .where(
+            SessionParticipant.user_id == user_id,
+            StudySession.is_active.is_(True),
+            StudySession.ends_at <= now_utc,
+        )
+    )
+    expired_sessions = list(db.execute(statement).scalars().all())
+    if not expired_sessions:
+        return
+
+    for session in expired_sessions:
+        session.is_active = False
+
+    db.commit()
+
+
+def _expire_location_study_sessions(db: Session,*,location_id: uuid.UUID, now_utc: datetime | None = None) -> None:
+    """Close expired group sessions for a location before listing active sessions."""
+    now_utc = now_utc or datetime.now(timezone.utc)
+    statement = (
+        select(StudySession)
+        .where(
+            StudySession.location_id == location_id,
+            StudySession.is_active.is_(True),
+            StudySession.ends_at <= now_utc,
+        )
+    )
+    expired_sessions = list(db.execute(statement).scalars().all())
+    if not expired_sessions:
+        return
+
+    for session in expired_sessions:
+        session.is_active = False
+
+    db.commit()
+
+
 def create_study_session(
     db: Session,
     *,
@@ -296,17 +361,22 @@ def get_study_session(db: Session, *, session_id: uuid.UUID) -> StudySession:
     if session is None:
         raise LookupError("Study session not found")
 
+    _expire_study_session_if_needed(db, session=session)
     return session
 
 
 def get_active_study_session_for_user(db: Session, *, user_id: uuid.UUID) -> StudySession | None:
     """Fetch the most recently created active study session for a participant."""
+    now_utc = datetime.now(timezone.utc)
+    _expire_user_study_sessions(db, user_id=user_id, now_utc=now_utc)
+
     statement = (
         select(StudySession)
         .join(SessionParticipant, SessionParticipant.session_id == StudySession.id)
         .where(
             SessionParticipant.user_id == user_id,
             StudySession.is_active.is_(True),
+            StudySession.ends_at > now_utc,
         )
         .order_by(StudySession.created_at.desc())
         .limit(1)
@@ -324,6 +394,8 @@ def join_study_session(
     session = db.get(StudySession, session_id)
     if session is None:
         raise LookupError("Study session not found")
+    if _expire_study_session_if_needed(db, session=session):
+        raise ValueError("Session is not active")
 
     already_participant = any(participant.user_id == user_id for participant in session.participants)
 
@@ -380,6 +452,8 @@ def update_session_usage_percent(
     session = db.get(StudySession, session_id)
     if session is None:
         raise LookupError("Study session not found")
+    if _expire_study_session_if_needed(db, session=session):
+        raise ValueError("Session is not active")
 
     is_participant = any(participant.user_id == user_id for participant in session.participants)
     if not is_participant:
@@ -396,12 +470,15 @@ def update_session_usage_percent(
 
 def get_active_sessions_for_location(db: Session, *, location_id: uuid.UUID) -> list[StudySession]:
     """Fetch all active study sessions for a given location."""
+    now_utc = datetime.now(timezone.utc)
+    _expire_location_study_sessions(db, location_id=location_id, now_utc=now_utc)
+
     statement = (
         select(StudySession)
         .where(
             StudySession.location_id == location_id,
             StudySession.is_active.is_(True),
-            StudySession.ends_at > datetime.now(timezone.utc),
+            StudySession.ends_at > now_utc,
         )
         .order_by(StudySession.created_at.desc())
     )
@@ -419,6 +496,8 @@ def location_session(
     session = db.get(StudySession, session_id)
     if session is None:
         raise LookupError("Study session not found")
+    if _expire_study_session_if_needed(db, session=session):
+        raise ValueError("Session is not active")
 
     if session.creator_id != user_id:
         raise ValueError("Only the session creator can change the location")
