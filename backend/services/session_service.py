@@ -9,17 +9,26 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import Date, Float, Integer, and_, cast, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from models.follow import Follow
 from models.location import Location
+from models.session_photo import SessionPhoto
 from models.session import PersonalStudySession, SessionParticipant, StudySession
+from models.user import User
 from schemas.session_schema import (
+    FollowingLeaderboardEntryResponse,
     PersonalSessionComplete,
     PersonalSessionEnd,
     PersonalSessionResponse,
     PersonalSessionsListResponse,
     PersonalSessionStart,
+)
+from schemas.user_schema import (
+    MostStudiedLocationResponse,
+    ProfileStatsResponse,
+    RecentStudyPhotoResponse,
 )
 from services import photo_service
 from services.distance_service import haversine_meters
@@ -27,6 +36,7 @@ from services.distance_service import haversine_meters
 SESSION_VALIDATION_RADIUS_METERS = 400
 MAX_SESSION_HOURS = 24
 SESSIONS_HISTORY_LIMIT = 100
+LEADERBOARD_WINDOW_DAYS = 7
 
 
 @dataclass
@@ -236,6 +246,262 @@ def complete_personal_session(
     db.commit()
     db.refresh(session)
     return session
+
+
+def get_following_leaderboard(
+    db: Session,
+    *,
+    current_user_id: uuid.UUID,
+) -> list[FollowingLeaderboardEntryResponse]:
+    """Rank followed users by completed personal-study minutes in the last 7 days."""
+    window_start = datetime.now(timezone.utc) - timedelta(days=LEADERBOARD_WINDOW_DAYS)
+    total_minutes_expr = cast(
+        func.floor(
+            func.coalesce(
+                func.sum(
+                    func.extract(
+                        "epoch",
+                        PersonalStudySession.ended_at - PersonalStudySession.started_at,
+                    )
+                ),
+                0.0,
+            )
+            / 60.0
+        ),
+        Integer,
+    )
+
+    statement = (
+        select(
+            User.id.label("user_id"),
+            User.name.label("name"),
+            total_minutes_expr.label("total_study_time"),
+        )
+        .select_from(Follow)
+        .join(User, User.id == Follow.following_id)
+        .outerjoin(
+            PersonalStudySession,
+            and_(
+                PersonalStudySession.user_id == Follow.following_id,
+                PersonalStudySession.ended_at.is_not(None),
+                PersonalStudySession.auto_timed_out.is_(False),
+                PersonalStudySession.ended_at >= window_start,
+            ),
+        )
+        .where(Follow.follower_id == current_user_id)
+        .group_by(User.id, User.name)
+        .order_by(total_minutes_expr.desc(), User.name.asc().nulls_last(), User.id.asc())
+    )
+    rows = db.execute(statement).all()
+
+    self_statement = (
+        select(
+            User.id.label("user_id"),
+            User.name.label("name"),
+            cast(
+                func.floor(
+                    func.coalesce(
+                        func.sum(
+                            func.extract(
+                                "epoch",
+                                PersonalStudySession.ended_at - PersonalStudySession.started_at,
+                            )
+                        ),
+                        0.0,
+                    )
+                    / 60.0
+                ),
+                Integer,
+            ).label("total_study_time"),
+        )
+        .select_from(User)
+        .outerjoin(
+            PersonalStudySession,
+            and_(
+                PersonalStudySession.user_id == User.id,
+                PersonalStudySession.ended_at.is_not(None),
+                PersonalStudySession.auto_timed_out.is_(False),
+                PersonalStudySession.ended_at >= window_start,
+            ),
+        )
+        .where(User.id == current_user_id)
+        .group_by(User.id, User.name)
+    )
+    self_row = db.execute(self_statement).one_or_none()
+
+    combined_rows = list(rows)
+    if self_row is not None and all(row.user_id != self_row.user_id for row in combined_rows):
+        combined_rows.append(self_row)
+
+    sorted_rows = sorted(
+        combined_rows,
+        key=lambda row: (
+            -(int(row.total_study_time or 0)),
+            (row.name or "").lower(),
+            str(row.user_id),
+        ),
+    )
+
+    leaderboard: list[FollowingLeaderboardEntryResponse] = []
+    for idx, row in enumerate(sorted_rows, start=1):
+        leaderboard.append(
+            FollowingLeaderboardEntryResponse(
+                user_id=row.user_id,
+                name=row.name,
+                total_study_time=int(row.total_study_time or 0),
+                rank=idx,
+            )
+        )
+    return leaderboard
+
+
+def get_user_profile_stats(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+) -> ProfileStatsResponse:
+    """Build profile stats for a user from existing personal study sessions."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise ServiceError(status_code=404, message="User not found.")
+
+    now_utc = datetime.now(timezone.utc)
+    window_start = now_utc - timedelta(days=LEADERBOARD_WINDOW_DAYS)
+    completed_filter = and_(
+        PersonalStudySession.ended_at.is_not(None),
+        PersonalStudySession.auto_timed_out.is_(False),
+    )
+    duration_minutes_expr = (
+        func.extract(
+            "epoch",
+            PersonalStudySession.ended_at - PersonalStudySession.started_at,
+        )
+        / 60.0
+    )
+
+    aggregate_statement = (
+        select(
+            cast(
+                func.coalesce(
+                    func.floor(func.sum(duration_minutes_expr).filter(completed_filter)),
+                    0,
+                ),
+                Integer,
+            ).label("total_study_time"),
+            cast(
+                func.coalesce(
+                    func.floor(
+                        func.sum(duration_minutes_expr).filter(
+                            and_(
+                                completed_filter,
+                                PersonalStudySession.ended_at >= window_start,
+                            )
+                        )
+                    ),
+                    0,
+                ),
+                Integer,
+            ).label("study_time_last_7_days"),
+            func.count(PersonalStudySession.id).filter(completed_filter).label("total_sessions"),
+            func.count(func.distinct(PersonalStudySession.location_id))
+            .filter(
+                and_(
+                    completed_filter,
+                    PersonalStudySession.location_id.is_not(None),
+                )
+            )
+            .label("unique_locations"),
+            func.avg(cast(PersonalStudySession.focus_level, Float))
+            .filter(
+                and_(
+                    completed_filter,
+                    PersonalStudySession.focus_level.is_not(None),
+                )
+            )
+            .label("average_focus_level"),
+        )
+        .where(PersonalStudySession.user_id == user_id)
+    )
+    aggregate = db.execute(aggregate_statement).one()
+
+    location_minutes_expr = cast(func.floor(func.sum(duration_minutes_expr)), Integer)
+    most_studied_statement = (
+        select(
+            Location.id.label("id"),
+            Location.name.label("name"),
+            location_minutes_expr.label("total_study_time"),
+        )
+        .join(Location, Location.id == PersonalStudySession.location_id)
+        .where(
+            PersonalStudySession.user_id == user_id,
+            PersonalStudySession.location_id.is_not(None),
+            PersonalStudySession.ended_at.is_not(None),
+            PersonalStudySession.auto_timed_out.is_(False),
+        )
+        .group_by(Location.id, Location.name)
+        .order_by(location_minutes_expr.desc(), Location.name.asc())
+        .limit(1)
+    )
+    most_studied = db.execute(most_studied_statement).one_or_none()
+
+    study_day_expr = cast(func.date(PersonalStudySession.ended_at), Date)
+    study_days_statement = (
+        select(study_day_expr)
+        .where(
+            PersonalStudySession.user_id == user_id,
+            PersonalStudySession.ended_at.is_not(None),
+            PersonalStudySession.auto_timed_out.is_(False),
+        )
+        .group_by(study_day_expr)
+        .order_by(study_day_expr.desc())
+    )
+    study_days = {row[0] for row in db.execute(study_days_statement).all() if row[0] is not None}
+    today = now_utc.date()
+    start_day = today if today in study_days else (today - timedelta(days=1))
+    current_streak = 0
+    while start_day in study_days:
+        current_streak += 1
+        start_day -= timedelta(days=1)
+
+    photos_statement = (
+        select(SessionPhoto.image_url, SessionPhoto.created_at)
+        .where(SessionPhoto.user_id == user_id)
+        .order_by(SessionPhoto.created_at.desc())
+        .limit(3)
+    )
+    recent_photos = [
+        RecentStudyPhotoResponse(image_url=row.image_url, created_at=row.created_at)
+        for row in db.execute(photos_statement).all()
+    ]
+
+    most_studied_location = (
+        MostStudiedLocationResponse(
+            id=most_studied.id,
+            name=most_studied.name,
+            total_study_time=int(most_studied.total_study_time or 0),
+        )
+        if most_studied
+        else None
+    )
+
+    average_focus = float(aggregate.average_focus_level) if aggregate.average_focus_level is not None else None
+    if average_focus is not None:
+        average_focus = round(average_focus, 2)
+
+    return ProfileStatsResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        profile_picture=user.profile_picture,
+        total_study_time=int(aggregate.total_study_time or 0),
+        study_time_last_7_days=int(aggregate.study_time_last_7_days or 0),
+        total_sessions=int(aggregate.total_sessions or 0),
+        unique_locations=int(aggregate.unique_locations or 0),
+        most_studied_location=most_studied_location,
+        average_focus_level=average_focus,
+        current_streak_days=current_streak,
+        recent_photos=recent_photos,
+    )
 
 
 # Group session logic

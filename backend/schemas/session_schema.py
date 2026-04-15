@@ -107,3 +107,12 @@ class PersonalSessionsListResponse(BaseModel):
 
     active_session: PersonalSessionResponse | None
     history: list[PersonalSessionResponse]
+
+
+class FollowingLeaderboardEntryResponse(BaseModel):
+    """Leaderboard row for followed users ranked by recent study time."""
+
+    user_id: UUID
+    name: str | None = None
+    total_study_time: int = Field(ge=0)
+    rank: int = Field(ge=1)

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from dependencies.auth_dependency import get_current_user_id
 from schemas.user_schema import FollowUserResponse
-from services import follows_service as follow_service
+from services import follows_service
 
 router = APIRouter(prefix="/users", tags=["follows"])
 
@@ -26,13 +26,13 @@ def follow_user(
     current_user_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
-        follow_service.follow_user(
+        follows_service.follow_user(
             db,
             follower_id=current_user_id,
             following_id=user_id,
         )
         return {"success": True, "data": {"following_id": str(user_id)}, "error": None}
-    except follow_service.ServiceError as exc:
+    except follows_service.ServiceError as exc:
         return JSONResponse(
             status_code=exc.status_code,
             content={"success": False, "data": None, "error": exc.message},
@@ -52,13 +52,13 @@ def unfollow_user(
     current_user_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
-        follow_service.unfollow_user(
+        follows_service.unfollow_user(
             db,
             follower_id=current_user_id,
             following_id=user_id,
         )
         return {"success": True, "data": {"unfollowed_id": str(user_id)}, "error": None}
-    except follow_service.ServiceError as exc:
+    except follows_service.ServiceError as exc:
         return JSONResponse(
             status_code=exc.status_code,
             content={"success": False, "data": None, "error": exc.message},
@@ -71,6 +71,48 @@ def unfollow_user(
         )
 
 
+@router.get("/me/followers")
+def get_my_followers(
+    db: Session = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    try:
+        users = follows_service.get_followers(db, user_id=current_user_id)
+        data = [FollowUserResponse.model_validate(u).model_dump() for u in users]
+        return {"success": True, "data": {"followers": data, "count": len(data)}, "error": None}
+    except follows_service.ServiceError as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "data": None, "error": exc.message},
+        )
+    except Exception:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to fetch followers"},
+        )
+
+
+@router.get("/me/following")
+def get_my_following(
+    db: Session = Depends(get_db),
+    current_user_id: uuid.UUID = Depends(get_current_user_id),
+):
+    try:
+        users = follows_service.get_following(db, user_id=current_user_id)
+        data = [FollowUserResponse.model_validate(u).model_dump() for u in users]
+        return {"success": True, "data": {"following": data, "count": len(data)}, "error": None}
+    except follows_service.ServiceError as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "data": None, "error": exc.message},
+        )
+    except Exception:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to fetch following"},
+        )
+
+
 @router.get("/{user_id}/followers")
 def get_followers(
     user_id: uuid.UUID,
@@ -78,10 +120,10 @@ def get_followers(
     current_user_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
-        users = follow_service.get_followers(db, user_id=user_id)
+        users = follows_service.get_followers(db, user_id=user_id)
         data = [FollowUserResponse.model_validate(u).model_dump() for u in users]
         return {"success": True, "data": {"followers": data, "count": len(data)}, "error": None}
-    except follow_service.ServiceError as exc:
+    except follows_service.ServiceError as exc:
         return JSONResponse(
             status_code=exc.status_code,
             content={"success": False, "data": None, "error": exc.message},
@@ -100,10 +142,10 @@ def get_following(
     current_user_id: uuid.UUID = Depends(get_current_user_id),
 ):
     try:
-        users = follow_service.get_following(db, user_id=user_id)
+        users = follows_service.get_following(db, user_id=user_id)
         data = [FollowUserResponse.model_validate(u).model_dump() for u in users]
         return {"success": True, "data": {"following": data, "count": len(data)}, "error": None}
-    except follow_service.ServiceError as exc:
+    except follows_service.ServiceError as exc:
         return JSONResponse(
             status_code=exc.status_code,
             content={"success": False, "data": None, "error": exc.message},

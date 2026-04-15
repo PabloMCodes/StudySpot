@@ -4,6 +4,7 @@ import type {
   CreateStudySessionPayload,
   EndPersonalSessionPayload,
   PersonalSessionsListResponse,
+  FollowingLeaderboardEntry,
   SessionActionResponse,
   SessionUsageUpdatePayload,
   StartPersonalSessionPayload,
@@ -22,6 +23,25 @@ export function getMySessions(accessToken: string): Promise<ApiResponse<Personal
     method: "GET",
     headers: authHeaders(accessToken),
   });
+}
+
+export async function getFollowingLeaderboard(
+  accessToken: string,
+): Promise<ApiResponse<FollowingLeaderboardEntry[]>> {
+  const response = await apiRequest<{ items: FollowingLeaderboardEntry[] }>("/sessions/me/leaderboard", {
+    method: "GET",
+    headers: authHeaders(accessToken),
+  });
+
+  if (!response.success || !response.data) {
+    return { success: false, data: null, error: response.error };
+  }
+
+  return {
+    success: true,
+    data: response.data.items ?? [],
+    error: null,
+  };
 }
 
 export function startSession(

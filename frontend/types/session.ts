@@ -76,3 +76,10 @@ export interface SessionUsageUpdatePayload {
 export interface SessionActionResponse {
   message: string;
 }
+
+export interface FollowingLeaderboardEntry {
+  user_id: string;
+  name: string | null;
+  total_study_time: number;
+  rank: number;
+}

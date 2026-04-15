@@ -78,3 +78,29 @@ class FollowUserResponse(BaseModel):
     profile_picture: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MostStudiedLocationResponse(BaseModel):
+    id: UUID
+    name: str
+    total_study_time: int
+
+
+class RecentStudyPhotoResponse(BaseModel):
+    image_url: str
+    created_at: datetime
+
+
+class ProfileStatsResponse(BaseModel):
+    id: UUID
+    name: str | None = None
+    email: str
+    profile_picture: str | None = None
+    total_study_time: int
+    study_time_last_7_days: int
+    total_sessions: int
+    unique_locations: int
+    most_studied_location: MostStudiedLocationResponse | None = None
+    average_focus_level: float | None = None
+    current_streak_days: int
+    recent_photos: list[RecentStudyPhotoResponse] = []
