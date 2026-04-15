@@ -2,8 +2,6 @@
 Shared auth helper file.
 This just means login-check helpers are kept in one reusable place.
 """
-from __future__ import annotations
-
 import uuid
 from typing import Any
 
