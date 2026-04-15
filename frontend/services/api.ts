@@ -8,7 +8,7 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
   "http://localhost:8000";
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 20_000;
 
 export async function apiRequest<T>(
   path: string,
@@ -17,14 +17,19 @@ export async function apiRequest<T>(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  const isFormDataBody = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const mergedHeaders: HeadersInit = isFormDataBody
+    ? { ...(init?.headers ?? {}) }
+    : {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      };
+
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       signal: init?.signal ?? controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
-      },
+      headers: mergedHeaders,
     });
 
     const payload = (await response.json()) as ApiResponse<T>;

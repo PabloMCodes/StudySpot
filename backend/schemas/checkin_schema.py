@@ -4,29 +4,22 @@ This just means request/response data shapes for check-ins go here.
 """
 
 from datetime import datetime
-from enum import IntEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class OccupancyPercent(IntEnum):
-    """Allowed occupancy buckets selected by users."""
-
-    zero = 0
-    twenty_five = 25
-    fifty = 50
-    seventy_five = 75
-    one_hundred = 100
+CrowdLabel = Literal["empty", "available", "busy", "packed"]
 
 
 class CheckInCreate(BaseModel):
     """Input payload used when creating a check-in."""
 
     location_id: UUID
-    occupancy_percent: OccupancyPercent
+    crowd_label: CrowdLabel
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
+    study_note: str | None = None
 
 
 class CheckInResponse(BaseModel):
@@ -35,7 +28,7 @@ class CheckInResponse(BaseModel):
     id: UUID
     user_id: UUID
     location_id: UUID
-    occupancy_percent: OccupancyPercent
+    crowd_label: CrowdLabel
     status: str
     created_at: datetime
     expires_at: datetime
@@ -47,7 +40,7 @@ class CheckInCheckout(BaseModel):
     """Input payload used when checking out from an active check-in."""
 
     checkin_id: UUID
-    occupancy_percent: OccupancyPercent
+    crowd_label: CrowdLabel | None = None
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
     note: str | None = None
@@ -60,9 +53,10 @@ class CheckInSessionResponse(BaseModel):
     location_id: UUID
     location_name: str
     location_address: str | None = None
-    checkin_occupancy_percent: OccupancyPercent
-    checkout_occupancy_percent: OccupancyPercent | None = None
-    note: str | None = None
+    checkin_crowd_label: CrowdLabel
+    checkout_crowd_label: CrowdLabel | None = None
+    study_note: str | None = None
+    checkout_note: str | None = None
     checked_in_at: datetime
     checked_out_at: datetime | None = None
     duration_minutes: int | None = None
@@ -75,6 +69,7 @@ class MyCheckInsResponse(BaseModel):
 
     active_checkin: CheckInSessionResponse | None
     history: list[CheckInSessionResponse]
+    occupancy_options: list[CrowdLabel]
 
 
 class NearbyCheckInPromptRequest(BaseModel):
@@ -88,6 +83,7 @@ class NearbyCheckInPromptResponse(BaseModel):
     """Prompt payload returned when user is near a location."""
 
     should_prompt: bool
+    occupancy_options: list[CrowdLabel]
     location_id: UUID | None = None
     location_name: str | None = None
     location_address: str | None = None

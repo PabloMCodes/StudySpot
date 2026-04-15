@@ -26,7 +26,10 @@ def credentials_error() -> HTTPException:
 ### Decode JWT & return payload dictionary (payload)
 def decode_token(token: str) -> dict[str, Any]:
     if not auth_service.JWT_SECRET_KEY:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="JWT configuration is missing")  
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="JWT configuration is missing (JWT_SECRET_KEY).",
+        )
     try:
         payload = jwt.decode(token, auth_service.JWT_SECRET_KEY, algorithms=[auth_service.JWT_ALGORITHM])
     except JWTError:

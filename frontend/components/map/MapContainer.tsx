@@ -9,6 +9,7 @@ import { MapboxPlaceholder } from "./MapboxPlaceholder";
 type MapProvider = "mapbox" | "fallback";
 
 interface MapContainerProps {
+  accessToken: string | null;
   locations: Location[];
   loading: boolean;
   error: string | null;
@@ -16,6 +17,7 @@ interface MapContainerProps {
   userCoordinates: UserCoordinates | null;
   canCheckIn: boolean;
   onOpenCheckinsForLocation: (locationId: string) => void;
+  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click") => Promise<void>;
   onLoadAvailability: (locationId: string) => Promise<{
     availability: CheckinAvailability | null;
     error: string | null;
@@ -28,6 +30,7 @@ function getMapProvider(): MapProvider {
 }
 
 export function MapContainer({
+  accessToken,
   locations,
   loading,
   error,
@@ -35,6 +38,7 @@ export function MapContainer({
   userCoordinates,
   canCheckIn,
   onOpenCheckinsForLocation,
+  onLogLocationInteraction,
   onLoadAvailability,
 }: MapContainerProps) {
   const mapProvider = getMapProvider();
@@ -43,10 +47,12 @@ export function MapContainer({
     <View style={styles.container}>
       {mapProvider === "mapbox" ? (
         <MapboxPlaceholder
+          accessToken={accessToken}
           canCheckIn={canCheckIn}
           error={error}
           loading={loading}
           locations={locations}
+          onLogLocationInteraction={onLogLocationInteraction}
           onOpenCheckinsForLocation={onOpenCheckinsForLocation}
           onLoadAvailability={onLoadAvailability}
           onRetry={onRetry}

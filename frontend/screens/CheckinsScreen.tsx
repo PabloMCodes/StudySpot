@@ -1,41 +1,35 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { EndSessionModal } from "../components/checkins/EndSessionModal";
+import { SessionInput } from "../components/checkins/SessionInput";
+import { StartSessionCard } from "../components/checkins/StartSessionCard";
+import { StudyHistoryList } from "../components/checkins/StudyHistoryList";
 import { checkoutCheckin, createCheckin, getMyCheckins } from "../services/checkinService";
-import type {
-  MyCheckinSession,
-  MyCheckinsResponse,
-  OccupancyPercent,
-} from "../types/checkin";
+import { uploadPhoto } from "../services/photoService";
+import { completeSession, getMySessions, startSession } from "../services/sessionService";
+import type { CrowdLabel, MyCheckinSession } from "../types/checkin";
+import type { PersonalSession, PersonalSessionsListResponse } from "../types/session";
 import type { Location, UserCoordinates } from "../types/location";
 
 interface CheckinsScreenProps {
   accessToken: string | null;
+  onAuthExpired: () => void;
   userCoordinates: UserCoordinates | null;
   preferredLocationId: string | null;
   onConsumePreferredLocation: () => void;
   locations: Location[];
 }
 
-const OCCUPANCY_OPTIONS: OccupancyPercent[] = [0, 25, 50, 75, 100];
 const CHECKINS_REFRESH_MS = 30 * 1000;
+const TRANSIENT_RETRY_DELAY_MS = 600;
 
 function formatDateTime(isoValue: string): string {
-  const date = new Date(isoValue);
-  return date.toLocaleString();
+  return new Date(isoValue).toLocaleString();
 }
 
-function formatDurationMinutes(totalMinutes: number): string {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours <= 0) {
-    return `${minutes}m`;
-  }
-  return `${hours}h ${minutes}m`;
-}
-
-function activeElapsedLabel(activeCheckin: MyCheckinSession, nowMillis: number): string {
-  const startedMillis = new Date(activeCheckin.checked_in_at).getTime();
+function activeElapsedLabel(activeSession: PersonalSession, nowMillis: number): string {
+  const startedMillis = new Date(activeSession.started_at).getTime();
   const elapsedSeconds = Math.max(0, Math.floor((nowMillis - startedMillis) / 1000));
   const hours = Math.floor(elapsedSeconds / 3600);
   const minutes = Math.floor((elapsedSeconds % 3600) / 60);
@@ -43,235 +37,417 @@ function activeElapsedLabel(activeCheckin: MyCheckinSession, nowMillis: number):
   return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+function isUnauthorizedError(message: string | null | undefined): boolean {
+  const normalized = (message ?? "").toLowerCase();
+  return normalized.includes("unauthorized") || normalized.includes("credential") || normalized.includes("token");
+}
+
+function focusToAccomplishment(focusLevel: number | null): number | undefined {
+  if (focusLevel === null) return undefined;
+  if (focusLevel <= 1) return 3;
+  if (focusLevel === 2) return 6;
+  if (focusLevel === 3) return 8;
+  return 10;
+}
+
 export function CheckinsScreen({
   accessToken,
+  onAuthExpired,
   userCoordinates,
   preferredLocationId,
   onConsumePreferredLocation,
   locations,
 }: CheckinsScreenProps) {
-  const [checkinsData, setCheckinsData] = useState<MyCheckinsResponse | null>(null);
+  const [sessionsData, setSessionsData] = useState<PersonalSessionsListResponse | null>(null);
+  const [activeCheckinId, setActiveCheckinId] = useState<string | null>(null);
+  const [activeCheckin, setActiveCheckin] = useState<MyCheckinSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [nowMillis, setNowMillis] = useState(Date.now());
+  const [startingSession, setStartingSession] = useState(false);
+  const [completingSession, setCompletingSession] = useState(false);
+
+  const [isStartFormOpen, setIsStartFormOpen] = useState(false);
+  const [useCurrentLocation, setUseCurrentLocation] = useState(false);
+  const [checkinCrowdLabel, setCheckinCrowdLabel] = useState<CrowdLabel | null>(null);
+  const [topic, setTopic] = useState("");
+  const [startNote, setStartNote] = useState("");
+  const [startNoteExpanded, setStartNoteExpanded] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(preferredLocationId);
-  const [checkoutNote, setCheckoutNote] = useState("");
 
-  const refreshCheckins = useCallback(async () => {
-    if (!accessToken) {
-      setCheckinsData(null);
-      return;
-    }
+  const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
-    setLoading(true);
-    const response = await getMyCheckins(accessToken);
-    if (!response.success || !response.data) {
-      setMessage(response.error ?? "Failed to load check-ins");
-      setLoading(false);
-      return;
-    }
+  const wait = useCallback((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)), []);
 
-    setCheckinsData(response.data);
-    setLoading(false);
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (preferredLocationId) {
-      setSelectedLocationId(preferredLocationId);
-      onConsumePreferredLocation();
-    }
-  }, [onConsumePreferredLocation, preferredLocationId]);
-
-  useEffect(() => {
-    void refreshCheckins();
-  }, [refreshCheckins]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNowMillis(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
-    const refreshTimer = setInterval(() => {
-      void refreshCheckins();
-    }, CHECKINS_REFRESH_MS);
-    return () => clearInterval(refreshTimer);
-  }, [accessToken, refreshCheckins]);
-
-  const activeCheckin = checkinsData?.active_checkin ?? null;
-  const history = checkinsData?.history ?? [];
   const selectedLocation = useMemo(
     () => locations.find((location) => location.id === selectedLocationId) ?? null,
     [locations, selectedLocationId],
   );
 
-  const handleCheckin = useCallback(
-    async (occupancyPercent: OccupancyPercent) => {
-      if (!accessToken) {
-        setMessage("Sign in to check in.");
-        return;
-      }
-      if (!selectedLocationId) {
-        setMessage("Select a location first.");
-        return;
-      }
-      if (!userCoordinates) {
-        setMessage("Turn on location services to check in.");
-        return;
-      }
+  const locationLabel = selectedLocation ? selectedLocation.name : "No location selected";
 
-      const response = await createCheckin(accessToken, {
-        location_id: selectedLocationId,
-        occupancy_percent: occupancyPercent,
-        lat: userCoordinates.lat,
-        lng: userCoordinates.lng,
-      });
-      if (!response.success) {
-        setMessage(response.error ?? "Failed to check in");
-        return;
-      }
+  const refreshAll = useCallback(async () => {
+    if (!accessToken) {
+      setSessionsData(null);
+      setActiveCheckinId(null);
+      setActiveCheckin(null);
+      return;
+    }
 
-      const availability = response.data?.availability.occupancy_percent;
-      setMessage(
-        availability !== undefined
-          ? `Checked in. AI availability now ${availability}%.`
-          : "Checked in successfully.",
+    setLoading(true);
+    let sessionsResponse = await getMySessions(accessToken);
+    let checkinsResponse = await getMyCheckins(accessToken);
+
+    const transient = (value: string | null | undefined) => {
+      const normalized = (value ?? "").toLowerCase();
+      return (
+        normalized.includes("request failed") ||
+        normalized.includes("network request failed") ||
+        normalized.includes("timed out")
       );
-      void refreshCheckins();
-    },
-    [accessToken, refreshCheckins, selectedLocationId, userCoordinates],
-  );
+    };
 
-  const handleCheckout = useCallback(
-    async (occupancyPercent: OccupancyPercent) => {
-      if (!accessToken) {
-        setMessage("Sign in to check out.");
-        return;
+    if (transient(sessionsResponse.error) || transient(checkinsResponse.error)) {
+      await wait(TRANSIENT_RETRY_DELAY_MS);
+      if (transient(sessionsResponse.error)) {
+        sessionsResponse = await getMySessions(accessToken);
       }
-      if (!activeCheckin) {
-        setMessage("No active check-in found.");
+      if (transient(checkinsResponse.error)) {
+        checkinsResponse = await getMyCheckins(accessToken);
+      }
+    }
+
+    if (!sessionsResponse.success || !sessionsResponse.data) {
+      if (isUnauthorizedError(sessionsResponse.error)) {
+        onAuthExpired();
+      } else {
+        setMessage("Couldn’t load sessions right now. Pull back in a moment.");
+      }
+      setLoading(false);
+      return;
+    }
+
+    if (!checkinsResponse.success && isUnauthorizedError(checkinsResponse.error)) {
+      onAuthExpired();
+      setLoading(false);
+      return;
+    }
+
+    setSessionsData(sessionsResponse.data);
+    setActiveCheckinId(checkinsResponse.data?.active_checkin?.id ?? null);
+    setActiveCheckin(checkinsResponse.data?.active_checkin ?? null);
+    setMessage(null);
+    setLoading(false);
+  }, [accessToken, onAuthExpired, wait]);
+
+  useEffect(() => {
+    if (preferredLocationId) {
+      setSelectedLocationId(preferredLocationId);
+      onConsumePreferredLocation();
+      setUseCurrentLocation(true);
+    }
+  }, [onConsumePreferredLocation, preferredLocationId]);
+
+  useEffect(() => {
+    void refreshAll();
+  }, [refreshAll]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMillis(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const refreshTimer = setInterval(() => {
+      void refreshAll();
+    }, CHECKINS_REFRESH_MS);
+    return () => clearInterval(refreshTimer);
+  }, [accessToken, refreshAll]);
+
+  const activeSession = sessionsData?.active_session ?? null;
+  const history = sessionsData?.history ?? [];
+
+  const handleStartSession = useCallback(async () => {
+    if (!accessToken) {
+      setMessage("Sign in to start a session.");
+      return;
+    }
+    if (!topic.trim()) {
+      setMessage("Add a topic first.");
+      return;
+    }
+
+    const withLocation = useCurrentLocation;
+    if (withLocation) {
+      if (!selectedLocationId) {
+        setMessage("Select a spot first from the map.");
         return;
       }
       if (!userCoordinates) {
-        setMessage("Turn on location services to check out.");
+        setMessage("Turn on location services for location sessions.");
         return;
       }
+      if (!checkinCrowdLabel) {
+        setMessage("How full does it feel? Select Empty, Available, Busy, or Packed.");
+        return;
+      }
+    }
+    const selectedCheckinCrowdLabel = withLocation ? checkinCrowdLabel : null;
 
-      const response = await checkoutCheckin(accessToken, {
-        checkin_id: activeCheckin.id,
-        occupancy_percent: occupancyPercent,
+    setStartingSession(true);
+
+    if (withLocation && selectedLocationId && userCoordinates && selectedCheckinCrowdLabel) {
+      const checkinResponse = await createCheckin(accessToken, {
+        location_id: selectedLocationId,
+        crowd_label: selectedCheckinCrowdLabel,
         lat: userCoordinates.lat,
         lng: userCoordinates.lng,
-        note: checkoutNote.trim() ? checkoutNote.trim() : undefined,
+        study_note: startNote.trim() ? startNote.trim() : undefined,
       });
-      if (!response.success) {
-        setMessage(response.error ?? "Failed to check out");
+      if (!checkinResponse.success) {
+        if (isUnauthorizedError(checkinResponse.error)) {
+          onAuthExpired();
+        } else {
+          setMessage(checkinResponse.error ?? "Failed to start location check-in");
+        }
+        setStartingSession(false);
+        return;
+      }
+      setActiveCheckinId(checkinResponse.data?.checkin.id ?? null);
+      setActiveCheckin({
+        id: checkinResponse.data?.checkin.id ?? "",
+        location_id: selectedLocationId,
+        location_name: selectedLocation?.name ?? "Selected location",
+        location_address: selectedLocation?.address ?? null,
+        checkin_crowd_label: selectedCheckinCrowdLabel,
+        checkout_crowd_label: null,
+        study_note: startNote.trim() ? startNote.trim() : null,
+        checkout_note: null,
+        checked_in_at: checkinResponse.data?.checkin.created_at ?? new Date().toISOString(),
+        checked_out_at: null,
+        duration_minutes: null,
+        is_active: true,
+        auto_timed_out: false,
+      });
+    } else {
+      setActiveCheckinId(null);
+      setActiveCheckin(null);
+    }
+
+    const sessionResponse = await startSession(accessToken, {
+      topic: topic.trim(),
+      location_id: withLocation && selectedLocationId ? selectedLocationId : undefined,
+      lat: withLocation && userCoordinates ? userCoordinates.lat : undefined,
+      lng: withLocation && userCoordinates ? userCoordinates.lng : undefined,
+      start_note: startNote.trim() ? startNote.trim() : undefined,
+    });
+
+    if (!sessionResponse.success) {
+      if (isUnauthorizedError(sessionResponse.error)) {
+        onAuthExpired();
+      } else {
+        setMessage(sessionResponse.error ?? "Failed to start session");
+      }
+      setStartingSession(false);
+      return;
+    }
+
+    if (sessionResponse.data?.active_session) {
+      setSessionsData((previous) => ({
+        active_session: sessionResponse.data?.active_session ?? null,
+        history: previous?.history ?? [],
+      }));
+    }
+
+    setTopic("");
+    setStartNote("");
+    setStartNoteExpanded(false);
+    setIsStartFormOpen(false);
+    setUseCurrentLocation(false);
+    setCheckinCrowdLabel(null);
+    setMessage("Study session started.");
+    setStartingSession(false);
+    void refreshAll();
+  }, [
+    accessToken,
+    onAuthExpired,
+    refreshAll,
+    selectedLocationId,
+    startNote,
+    topic,
+    useCurrentLocation,
+    checkinCrowdLabel,
+    userCoordinates,
+  ]);
+
+  const handleCompleteSession = useCallback(
+    async (payload: {
+      rating: number | null;
+      focusLevel: number | null;
+      note: string;
+      photoUri: string | null;
+      checkoutCrowdLabel: CrowdLabel | null;
+    }) => {
+      if (!accessToken || !activeSession) {
         return;
       }
 
-      setCheckoutNote("");
-      setMessage("Checked out. Session saved.");
-      void refreshCheckins();
+      setCompletingSession(true);
+
+      let uploadedImageUrl: string | undefined;
+      if (payload.photoUri) {
+        const uploadResponse = await uploadPhoto(accessToken, payload.photoUri);
+        if (!uploadResponse.success || !uploadResponse.data?.image_url) {
+          setMessage(uploadResponse.error ?? "Photo upload failed.");
+          setCompletingSession(false);
+          return;
+        }
+        uploadedImageUrl = uploadResponse.data.image_url;
+      }
+
+      if (activeSession.is_location_verified && activeCheckinId && userCoordinates) {
+        const checkoutResponse = await checkoutCheckin(accessToken, {
+          checkin_id: activeCheckinId,
+          crowd_label: payload.checkoutCrowdLabel ?? undefined,
+          lat: userCoordinates.lat,
+          lng: userCoordinates.lng,
+          note: payload.note.trim() ? payload.note.trim() : undefined,
+        });
+        if (!checkoutResponse.success) {
+          if (isUnauthorizedError(checkoutResponse.error)) {
+            onAuthExpired();
+          } else {
+            setMessage(checkoutResponse.error ?? "Failed to check out");
+          }
+          setCompletingSession(false);
+          return;
+        }
+        setActiveCheckinId(null);
+        setActiveCheckin(null);
+      }
+
+      const completeResponse = await completeSession(accessToken, activeSession.id, {
+        rating: payload.rating ?? undefined,
+        focus_level: payload.focusLevel ?? undefined,
+        accomplishment_score: focusToAccomplishment(payload.focusLevel),
+        note: payload.note.trim() ? payload.note.trim() : undefined,
+        image_url: uploadedImageUrl,
+      });
+
+      if (!completeResponse.success || !completeResponse.data) {
+        if (isUnauthorizedError(completeResponse.error)) {
+          onAuthExpired();
+        } else {
+          setMessage(completeResponse.error ?? "Failed to complete session");
+        }
+        setCompletingSession(false);
+        return;
+      }
+
+      setSessionsData(completeResponse.data);
+      setIsEndModalOpen(false);
+      setMessage("Session completed.");
+      setCompletingSession(false);
+      void refreshAll();
     },
-    [accessToken, activeCheckin, checkoutNote, refreshCheckins, userCoordinates],
+    [accessToken, activeCheckinId, activeSession, onAuthExpired, refreshAll, userCoordinates],
   );
+
+  const handleCheckoutOnly = useCallback(async () => {
+    if (!accessToken || !activeCheckinId) {
+      return;
+    }
+    if (!userCoordinates) {
+      setMessage("Turn on location services to check out.");
+      return;
+    }
+    const response = await checkoutCheckin(accessToken, {
+      checkin_id: activeCheckinId,
+      lat: userCoordinates.lat,
+      lng: userCoordinates.lng,
+    });
+    if (!response.success) {
+      if (isUnauthorizedError(response.error)) {
+        onAuthExpired();
+      } else {
+        setMessage(response.error ?? "Failed to check out");
+      }
+      return;
+    }
+    setActiveCheckinId(null);
+    setActiveCheckin(null);
+    setMessage("Checked out successfully.");
+    void refreshAll();
+  }, [accessToken, activeCheckinId, onAuthExpired, refreshAll, userCoordinates]);
 
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.heroCard}>
-        <Text style={styles.heroEyebrow}>Check-Ins</Text>
-        <Text style={styles.heroTitle}>Track your study sessions</Text>
-        <Text style={styles.heroSubtitle}>
-          Check in when you arrive, check out when you leave, and keep quick notes for each session.
-        </Text>
-      </View>
-
       {message ? (
         <View style={styles.messageCard}>
           <Text style={styles.messageText}>{message}</Text>
         </View>
       ) : null}
 
-      {activeCheckin ? (
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Active Session</Text>
-          <Text style={styles.activeName}>{activeCheckin.location_name}</Text>
-          <Text style={styles.muted}>Checked in at {formatDateTime(activeCheckin.checked_in_at)}</Text>
-          <Text style={styles.timerText}>{activeElapsedLabel(activeCheckin, nowMillis)}</Text>
-          <Text style={styles.fieldLabel}>How full does it feel now?</Text>
-          <View style={styles.optionsRow}>
-            {OCCUPANCY_OPTIONS.map((option) => (
-              <Pressable key={option} onPress={() => void handleCheckout(option)} style={styles.optionButton}>
-                <Text style={styles.optionText}>{option}%</Text>
-              </Pressable>
-            ))}
-          </View>
-          <TextInput
-            multiline
-            onChangeText={setCheckoutNote}
-            placeholder="Session note (optional)"
-            placeholderTextColor="#8A7D6A"
-            style={styles.noteInput}
-            value={checkoutNote}
-          />
+      {activeCheckin && !activeSession ? (
+        <View style={styles.activeCard}>
+          <Text style={styles.activeTitle}>Active Check-In</Text>
+          <Text style={styles.activeTopic}>{activeCheckin.location_name}</Text>
+          <Text style={styles.activeMeta}>Checked in {formatDateTime(activeCheckin.checked_in_at)}</Text>
+          <Pressable onPress={() => void handleCheckoutOnly()} style={styles.endButton}>
+            <Text style={styles.endButtonText}>Check Out</Text>
+          </Pressable>
         </View>
+      ) : null}
+
+      {!activeSession ? (
+        <>
+          <StartSessionCard
+            disabled={startingSession}
+            locationLabel={useCurrentLocation ? locationLabel : "No location selected"}
+            onStartPress={() => setIsStartFormOpen(true)}
+          />
+          {isStartFormOpen ? (
+            <SessionInput
+              note={startNote}
+              noteExpanded={startNoteExpanded}
+              onCancel={() => setIsStartFormOpen(false)}
+              onNoteChange={setStartNote}
+              onSubmit={() => void handleStartSession()}
+              onToggleNoteExpanded={() => setStartNoteExpanded((prev) => !prev)}
+              onToggleUseCurrentLocation={() => setUseCurrentLocation((prev) => !prev)}
+              onTopicChange={setTopic}
+              checkinCrowdLabel={checkinCrowdLabel}
+              onCheckinCrowdLabelChange={setCheckinCrowdLabel}
+              selectedLocationName={selectedLocation?.name ?? null}
+              submitting={startingSession}
+              topic={topic}
+              useCurrentLocation={useCurrentLocation}
+            />
+          ) : null}
+        </>
       ) : (
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Start A Check-In</Text>
-          <Text style={styles.muted}>
-            {selectedLocation
-              ? `Selected: ${selectedLocation.name}`
-              : "Pick a spot from the map, then check in here."}
-          </Text>
-          <View style={styles.optionsRow}>
-            {OCCUPANCY_OPTIONS.map((option) => (
-              <Pressable
-                key={option}
-                disabled={!selectedLocationId}
-                onPress={() => void handleCheckin(option)}
-                style={({ pressed }) => [
-                  styles.optionButton,
-                  !selectedLocationId && styles.optionButtonDisabled,
-                  pressed && styles.optionButtonPressed,
-                ]}
-              >
-                <Text style={styles.optionText}>{option}%</Text>
-              </Pressable>
-            ))}
-          </View>
+        <View style={styles.activeCard}>
+          <Text style={styles.activeTitle}>Active Session</Text>
+          <Text style={styles.activeTopic}>{activeSession.topic}</Text>
+          <Text style={styles.activeMeta}>{activeSession.location_name ?? "No location"}</Text>
+          <Text style={styles.activeMeta}>Started {formatDateTime(activeSession.started_at)}</Text>
+          <Text style={styles.timerText}>{activeElapsedLabel(activeSession, nowMillis)}</Text>
+
+          <Pressable onPress={() => setIsEndModalOpen(true)} style={styles.endButton}>
+            <Text style={styles.endButtonText}>End Session</Text>
+          </Pressable>
         </View>
       )}
 
-      <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Session History</Text>
-        {loading ? <Text style={styles.muted}>Loading check-ins...</Text> : null}
-        {!loading && history.length === 0 ? (
-          <Text style={styles.muted}>No previous sessions yet.</Text>
-        ) : null}
-        {history.map((item) => (
-          <View key={item.id} style={styles.historyRow}>
-            <Text style={styles.historyTitle}>{item.location_name}</Text>
-            <Text style={styles.muted}>In: {formatDateTime(item.checked_in_at)}</Text>
-            <Text style={styles.muted}>
-              Out: {item.checked_out_at ? formatDateTime(item.checked_out_at) : "Still active"}
-            </Text>
-            <Text style={styles.muted}>
-              Duration:{" "}
-              {item.duration_minutes === null
-                ? item.auto_timed_out
-                  ? "Unavailable (auto-closed after 24h)"
-                  : "Unavailable"
-                : formatDurationMinutes(item.duration_minutes)}
-            </Text>
-            {item.note ? <Text style={styles.noteText}>Note: {item.note}</Text> : null}
-          </View>
-        ))}
-      </View>
+      <StudyHistoryList history={history} loading={loading} />
+
+      <EndSessionModal
+        loading={completingSession}
+        onClose={() => setIsEndModalOpen(false)}
+        onSubmit={(payload) => void handleCompleteSession(payload)}
+        visible={isEndModalOpen}
+      />
     </ScrollView>
   );
 }
@@ -279,38 +455,14 @@ export function CheckinsScreen({
 const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 16,
     paddingBottom: 120,
-    gap: 14,
-  },
-  heroCard: {
-    backgroundColor: "#2F6B57",
-    borderRadius: 24,
-    padding: 16,
-    gap: 8,
-  },
-  heroEyebrow: {
-    color: "#D8F3E8",
-    fontSize: 11,
-    letterSpacing: 1.1,
-    textTransform: "uppercase",
-    fontWeight: "700",
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  heroSubtitle: {
-    color: "#E4F6EE",
-    fontSize: 13,
-    lineHeight: 18,
+    gap: 18,
+    backgroundColor: "#f4efe2",
   },
   messageCard: {
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#d8cfba",
-    backgroundColor: "rgba(253, 251, 244, 0.96)",
+    backgroundColor: "#fff9ef",
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -319,91 +471,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-  sectionCard: {
-    backgroundColor: "#FFFDF9",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E2D7C4",
+  activeCard: {
+    backgroundColor: "#fffdf9",
+    borderRadius: 22,
     padding: 14,
-    gap: 8,
+    gap: 10,
+    shadowColor: "#1f2b1f",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  sectionTitle: {
-    color: "#2F4031",
-    fontSize: 18,
+  activeTitle: {
+    color: "#294129",
+    fontSize: 16,
     fontWeight: "800",
   },
-  activeName: {
-    color: "#314b30",
-    fontSize: 16,
+  activeTopic: {
+    color: "#2f3c2b",
+    fontSize: 15,
     fontWeight: "700",
   },
-  muted: {
+  activeMeta: {
     color: "#6b6a59",
     fontSize: 12,
     fontWeight: "600",
   },
   timerText: {
-    marginTop: 2,
-    color: "#334226",
-    fontSize: 18,
+    color: "#2f6b57",
+    fontSize: 20,
     fontWeight: "800",
   },
-  fieldLabel: {
-    marginTop: 4,
-    color: "#4f5c42",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  optionsRow: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  optionButton: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#6d7a5a",
-    backgroundColor: "#fdfbf4",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  optionButtonDisabled: {
-    opacity: 0.5,
-  },
-  optionButtonPressed: {
-    opacity: 0.8,
-  },
-  optionText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#334226",
-  },
-  noteInput: {
-    minHeight: 76,
+  endButton: {
+    minHeight: 50,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E2D7C4",
-    backgroundColor: "#fffaf1",
-    color: "#2f3c2b",
-    fontSize: 13,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    textAlignVertical: "top",
+    backgroundColor: "#2f6b57",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  historyRow: {
-    borderTopWidth: 1,
-    borderTopColor: "#efe6d5",
-    paddingTop: 10,
-    gap: 3,
-  },
-  historyTitle: {
-    color: "#2F4031",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  noteText: {
-    color: "#4f5c42",
-    fontSize: 12,
-    fontWeight: "600",
+  endButtonText: {
+    color: "#f5fbf7",
+    fontSize: 15,
+    fontWeight: "800",
   },
 });

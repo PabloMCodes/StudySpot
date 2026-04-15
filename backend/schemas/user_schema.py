@@ -31,3 +31,12 @@ class UserPrivateResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class FollowUserResponse(BaseModel):
+    """User shape returned in follower/following list responses."""
+
+    id: UUID
+    name: str | None = None
+    profile_picture: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)

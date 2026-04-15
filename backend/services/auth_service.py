@@ -6,6 +6,7 @@ This means all auth business logic lives here, not in routes.
 from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import google.auth.transport.requests
 import google.oauth2.id_token
@@ -14,6 +15,27 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from models.user import User
+
+
+def _load_env_defaults() -> None:
+    """Load key=value pairs from backend/.env when shell vars are not exported."""
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
+
+
+_load_env_defaults()
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_IOS_CLIENT_ID = os.getenv("GOOGLE_IOS_CLIENT_ID", "")

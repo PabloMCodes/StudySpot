@@ -17,7 +17,9 @@
       "bundleIdentifier": "com.studyspot.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "StudySpot uses your location to show nearby study spots.",
-        "NSUserNotificationsUsageDescription": "StudySpot sends reminders so you can quickly check in when you arrive."
+        "NSUserNotificationsUsageDescription": "StudySpot sends reminders so you can quickly check in when you arrive.",
+        "NSCameraUsageDescription": "StudySpot uses your camera so you can share a study spot photo after your session.",
+        "NSPhotoLibraryUsageDescription": "StudySpot uses your photo library so you can upload study spot photos."
       }
     },
     "android": {
@@ -28,7 +30,9 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -40,6 +44,13 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "StudySpot uses your location to show nearby study spots."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "StudySpot uses your photo library so you can upload study spot photos.",
+          "cameraPermission": "StudySpot uses your camera so you can share a study spot photo after your session."
         }
       ],
       "expo-notifications",

@@ -17,6 +17,7 @@ from database import Base
 
 if TYPE_CHECKING:
     from models.location import Location
+    from models.session_photo import SessionPhoto
     from models.user import User
 
 
@@ -25,7 +26,10 @@ class StudySession(Base):
 
     __tablename__ = "study_sessions"
     __table_args__ = (
-        CheckConstraint("max_participants > 0", name="ck_study_sessions_max_participants"),
+        CheckConstraint(
+            "current_usage_percent IN (0, 25, 50, 75, 100)",
+            name="ck_study_sessions_current_usage_percent",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -67,6 +71,18 @@ class StudySession(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    current_usage_percent: Mapped[int] = mapped_column(
+        SmallInteger,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    public: Mapped[bool] = mapped_column( 
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
 
 
 class SessionParticipant(Base):
@@ -93,3 +109,65 @@ class SessionParticipant(Base):
 
     session: Mapped[StudySession] = relationship(back_populates="participants")
     user: Mapped[User] = relationship(back_populates="session_participations")
+
+
+class PersonalStudySession(Base):
+    """Personal session log. This means one row is one focused study block."""
+
+    __tablename__ = "personal_study_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "(accomplishment_score IS NULL) OR (accomplishment_score BETWEEN 1 AND 10)",
+            name="ck_personal_sessions_accomplishment_score",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("locations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    topic: Mapped[str] = mapped_column(String(200), nullable=False)
+    start_note: Mapped[str | None] = mapped_column(String, nullable=True)
+    end_note: Mapped[str | None] = mapped_column(String, nullable=True)
+    accomplishment_score: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    rating: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    focus_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_location_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    auto_timed_out: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+
+    user: Mapped[User] = relationship()
+    location: Mapped[Location | None] = relationship()
+    photos: Mapped[list[SessionPhoto]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

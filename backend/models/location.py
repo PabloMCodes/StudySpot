@@ -30,6 +30,7 @@ from database import Base
 if TYPE_CHECKING:
     from models.checkin import CheckIn
     from models.comment import Comment
+    from models.session_photo import SessionPhoto
     from models.session import StudySession
     from models.user_location import UserLocation
 
@@ -103,6 +104,11 @@ class Location(Base):
         passive_deletes=True,
     )
     comments: Mapped[list[Comment]] = relationship(
+        back_populates="location",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    session_photos: Mapped[list[SessionPhoto]] = relationship(
         back_populates="location",
         cascade="all, delete-orphan",
         passive_deletes=True,

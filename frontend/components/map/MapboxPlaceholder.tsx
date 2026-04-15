@@ -1,13 +1,12 @@
 import Mapbox, { type Camera, type MapState } from "@rnmapbox/maps";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import {
   applySearchIntent,
   DEFAULT_SEARCH_INTENT,
-  isLocationOpenNow,
-  parseNaturalLanguageToIntent,
 } from "../../services/locationFilterService";
+import { LocationDetailScreen } from "../../screens/LocationDetailScreen";
 import { getLocations, getLocationsInBounds } from "../../services/locationService";
 import {
   boundsFromCameraState,
@@ -23,6 +22,7 @@ import type {
 import { MapFallback } from "./MapFallback";
 
 interface MapboxPlaceholderProps {
+  accessToken: string | null;
   locations: Location[];
   loading: boolean;
   error: string | null;
@@ -34,29 +34,70 @@ interface MapboxPlaceholderProps {
     error: string | null;
   }>;
   onOpenCheckinsForLocation: (locationId: string) => void;
+  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click") => Promise<void>;
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
-const OPEN_AT_OPTIONS: Array<number | null> = [null, 8 * 60, 12 * 60, 18 * 60];
-const CATEGORY_CHIPS = [
-  { label: "Coffee", value: "coffee" },
-  { label: "Boba", value: "boba" },
-  { label: "Library", value: "library" },
-] as const;
+const MAX_VISIBLE_PINS = 15;
+const TOP_RANKED_COUNT = 15;
+const RECOMMENDATIONS_SHEET_COLLAPSE_OFFSET = 320;
+const DISTANCE_OPTIONS_METERS: Array<number | null> = [null, 3219, 8047, 16093];
 
-function formatMinutesLabel(totalMinutes: number | null): string {
-  if (totalMinutes === null) {
-    return "Any Time";
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radius = 6_371_000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const a = sinLat * sinLat + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * sinLng * sinLng;
+  return radius * 2 * Math.asin(Math.sqrt(a));
+}
+
+function formatDistance(meters: number | null): string {
+  if (meters === null) return "Distance unavailable";
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function formatDistanceFilterLabel(maxDistanceMeters: number | null): string {
+  if (maxDistanceMeters === null) return "Any distance";
+  const miles = Math.round(maxDistanceMeters / 1609.34);
+  return `Within ${miles} mi`;
+}
+
+function isCafeOrCoffee(location: Location): boolean {
+  const haystack = [
+    location.name,
+    location.category ?? "",
+    ...(location.types ?? []),
+    location.description ?? "",
+    location.editorial_summary ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    haystack.includes("cafe") ||
+    haystack.includes("coffee") ||
+    haystack.includes("coffee shop") ||
+    haystack.includes("espresso")
+  );
+}
+
+function getGoogleMapsUrl(location: Location): string {
+  if (location.maps_url && location.maps_url.trim().length > 0) {
+    return location.maps_url;
   }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${location.latitude},${location.longitude}`)}`;
+}
 
-  const hours24 = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const suffix = hours24 >= 12 ? "PM" : "AM";
-  const hour12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
-  return `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+function getAppleMapsUrl(location: Location): string {
+  const label = encodeURIComponent(location.name);
+  return `http://maps.apple.com/?ll=${location.latitude},${location.longitude}&q=${label}`;
 }
 
 export function MapboxPlaceholder({
+  accessToken,
   locations,
   loading,
   error,
@@ -65,6 +106,7 @@ export function MapboxPlaceholder({
   canCheckIn,
   onLoadAvailability,
   onOpenCheckinsForLocation,
+  onLogLocationInteraction,
 }: MapboxPlaceholderProps) {
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
@@ -83,9 +125,15 @@ export function MapboxPlaceholder({
   const [selectedLocationAvailability, setSelectedLocationAvailability] = useState<CheckinAvailability | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [showRecommendations, setShowRecommendations] = useState(true);
+  const [recommendationsPage, setRecommendationsPage] = useState(0);
+  const [maxDistanceMeters, setMaxDistanceMeters] = useState<number | null>(null);
+  const [cafeOnly, setCafeOnly] = useState(false);
+  const recommendationsVisibility = useRef(new Animated.Value(1)).current;
+  const [topAvailabilityById, setTopAvailabilityById] = useState<Record<string, CheckinAvailability>>({});
   const blurSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const accessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
+  const mapboxAccessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
   const configuredStyleURL = process.env.EXPO_PUBLIC_MAPBOX_STYLE_URL?.trim();
   const [styleURL, setStyleURL] = useState<string>(configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street);
   const [styleLoadError, setStyleLoadError] = useState<string | null>(null);
@@ -146,21 +194,11 @@ export function MapboxPlaceholder({
   }, []);
 
   const maybeFetchLocationsForState = useCallback(
-    (state: MapState) => {
-      const bounds = boundsFromCameraState(state);
-      if (!bounds) {
-        return;
-      }
-
-      // Ignore tiny camera movements to avoid redundant fetches while panning.
-      if (!didBoundsChange(lastViewportBoundsRef.current, bounds, 0.01)) {
-        return;
-      }
-
-      lastViewportBoundsRef.current = bounds;
-      void fetchLocationsForBounds(bounds);
+    (_state: MapState) => {
+      // Keep recommendations stable (nearest known mapped study-friendly spots).
+      // We intentionally do not replace them with viewport-bounded fetches.
     },
-    [fetchLocationsForBounds],
+    [],
   );
 
   const onMapIdle = useCallback(
@@ -189,9 +227,47 @@ export function MapboxPlaceholder({
     [viewportLocations],
   );
 
-  const filteredLocations = useMemo(
-    () => applySearchIntent(validLocations, intent),
-    [intent, validLocations],
+  const filteredLocations = useMemo(() => {
+    const base = applySearchIntent(validLocations, intent);
+    return base.filter((location) => {
+      if (cafeOnly && !isCafeOrCoffee(location)) {
+        return false;
+      }
+      if (maxDistanceMeters !== null && userCoordinates) {
+        const distance = haversineMeters(
+          userCoordinates.lat,
+          userCoordinates.lng,
+          location.latitude,
+          location.longitude,
+        );
+        if (distance > maxDistanceMeters) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [cafeOnly, intent, maxDistanceMeters, userCoordinates, validLocations]);
+
+  const totalRecommendationPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredLocations.length / TOP_RANKED_COUNT)),
+    [filteredLocations.length],
+  );
+
+  useEffect(() => {
+    setRecommendationsPage((previous) => Math.min(previous, Math.max(0, totalRecommendationPages - 1)));
+  }, [totalRecommendationPages]);
+
+  const pageStart = recommendationsPage * TOP_RANKED_COUNT;
+  const pageEnd = pageStart + TOP_RANKED_COUNT;
+
+  const mapLocations = useMemo(
+    () => filteredLocations.slice(pageStart, pageStart + MAX_VISIBLE_PINS),
+    [filteredLocations, pageStart],
+  );
+
+  const topRankedLocations = useMemo(
+    () => filteredLocations.slice(pageStart, pageEnd),
+    [filteredLocations, pageEnd, pageStart],
   );
 
   const selectedLocation = useMemo(
@@ -201,6 +277,22 @@ export function MapboxPlaceholder({
       locations.find((location) => location.id === selectedLocationId) ??
       null,
     [autocompleteSuggestions, locations, selectedLocationId, validLocations],
+  );
+
+  const topRankedWithDistance = useMemo(
+    () =>
+      topRankedLocations.map((location) => ({
+        location,
+        distanceMeters: userCoordinates
+          ? haversineMeters(
+              userCoordinates.lat,
+              userCoordinates.lng,
+              location.latitude,
+              location.longitude,
+            )
+          : null,
+      })),
+    [topRankedLocations, userCoordinates],
   );
 
   const localAutocompleteFallback = useMemo(() => {
@@ -235,31 +327,29 @@ export function MapboxPlaceholder({
     () =>
       Boolean(intent.queryText.trim()) ||
       intent.openNow ||
-      intent.openAtMinutes !== null ||
-      intent.minQuietLevel !== null ||
-      intent.hasOutlets !== null ||
-      intent.categories.length > 0,
-    [intent],
+      maxDistanceMeters !== null ||
+      cafeOnly,
+    [cafeOnly, intent, maxDistanceMeters],
   );
 
   const locationFeatureCollection = useMemo<GeoJSON.FeatureCollection>(
     () => ({
       type: "FeatureCollection",
-      features: filteredLocations.map((location) => ({
-        type: "Feature",
-        id: location.id,
-        properties: {
-          locationId: location.id,
-          name: location.name,
-          address: location.address ?? "",
-        },
-        geometry: {
-          type: "Point",
-          coordinates: [location.longitude, location.latitude],
-        },
-      })),
+      features: mapLocations.map((location) => {
+        return {
+          type: "Feature",
+          id: location.id,
+          properties: {
+            locationId: location.id,
+          },
+          geometry: {
+            type: "Point",
+            coordinates: [location.longitude, location.latitude],
+          },
+        };
+      }),
     }),
-    [filteredLocations],
+    [mapLocations],
   );
 
   useEffect(() => {
@@ -269,6 +359,26 @@ export function MapboxPlaceholder({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (intent.queryText.trim().length > 0) {
+      setShowRecommendations(true);
+      setRecommendationsPage(0);
+    }
+  }, [intent.queryText]);
+
+  useEffect(() => {
+    setRecommendationsPage(0);
+  }, [cafeOnly, intent.openNow, maxDistanceMeters]);
+
+  useEffect(() => {
+    Animated.timing(recommendationsVisibility, {
+      toValue: showRecommendations ? 1 : 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [recommendationsVisibility, showRecommendations]);
 
   useEffect(() => {
     const query = intent.queryText.trim();
@@ -353,16 +463,48 @@ export function MapboxPlaceholder({
   }, [onLoadAvailability, selectedLocation]);
 
   useEffect(() => {
+    let cancelled = false;
+    const targetIds = topRankedLocations.map((location) => location.id);
+    if (targetIds.length === 0) {
+      setTopAvailabilityById({});
+      return;
+    }
+
+    void Promise.all(
+      targetIds.map(async (locationId) => {
+        const result = await onLoadAvailability(locationId);
+        return [locationId, result.availability] as const;
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      const next: Record<string, CheckinAvailability> = {};
+      entries.forEach(([locationId, availability]) => {
+        if (availability) next[locationId] = availability;
+      });
+      setTopAvailabilityById(next);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [onLoadAvailability, topRankedLocations]);
+
+  useEffect(() => {
+    if (!selectedLocationId) return;
+    void onLogLocationInteraction(selectedLocationId, "view");
+  }, [onLogLocationInteraction, selectedLocationId]);
+
+  useEffect(() => {
     let isActive = true;
 
-    if (!accessToken) {
+    if (!mapboxAccessToken) {
       setMapboxInitError("Missing EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN in frontend/.env.local");
       return () => {
         isActive = false;
       };
     }
 
-    Mapbox.setAccessToken(accessToken)
+    Mapbox.setAccessToken(mapboxAccessToken)
       .then(() => {
         if (isActive) {
           setMapboxInitError(null);
@@ -377,7 +519,7 @@ export function MapboxPlaceholder({
     return () => {
       isActive = false;
     };
-  }, [accessToken]);
+  }, [mapboxAccessToken]);
 
   useEffect(() => {
     setStyleURL(configuredStyleURL ? configuredStyleURL : Mapbox.StyleURL.Street);
@@ -414,44 +556,20 @@ export function MapboxPlaceholder({
     });
   }, [userCoordinates]);
 
-  const onShapePress = useCallback(async (event: any) => {
+  const onShapePress = useCallback((event: any) => {
     const feature = event?.features?.[0];
     if (!feature) {
       return;
     }
-
-    const isCluster = Boolean(feature.properties?.cluster);
     const coordinates = feature.geometry?.coordinates;
 
     if (!Array.isArray(coordinates) || coordinates.length < 2 || !cameraRef.current) {
       return;
     }
 
-    if (isCluster) {
-      try {
-        const nextZoom = shapeSourceRef.current
-          ? await shapeSourceRef.current.getClusterExpansionZoom(feature)
-          : 12;
-
-        cameraRef.current.setCamera({
-          centerCoordinate: [coordinates[0], coordinates[1]],
-          zoomLevel: Math.min(Number(nextZoom) + 0.2, 16),
-          animationDuration: 280,
-          animationMode: "easeTo",
-        });
-      } catch {
-        cameraRef.current.setCamera({
-          centerCoordinate: [coordinates[0], coordinates[1]],
-          zoomLevel: 12.5,
-          animationDuration: 280,
-          animationMode: "easeTo",
-        });
-      }
-      return;
-    }
-
     const locationId = feature.properties?.locationId;
     if (typeof locationId === "string") {
+      void onLogLocationInteraction(locationId, "click");
       setSelectedLocationId((previousId) => {
         if (previousId === locationId) {
           return null;
@@ -467,7 +585,7 @@ export function MapboxPlaceholder({
         return locationId;
       });
     }
-  }, []);
+  }, [onLogLocationInteraction]);
 
   const onSearchFocus = useCallback(() => {
     if (blurSearchTimeoutRef.current) {
@@ -493,18 +611,21 @@ export function MapboxPlaceholder({
     setIntent((prev) => ({
       ...prev,
       queryText: location.name,
-      categories: [],
       openNow: false,
-      openAtMinutes: null,
     }));
     setIsSearchActive(false);
     setSelectedLocationId(location.id);
+    void onLogLocationInteraction(location.id, "click");
     cameraRef.current?.setCamera({
       centerCoordinate: [location.longitude, location.latitude],
       zoomLevel: 13,
       animationDuration: 320,
       animationMode: "easeTo",
     });
+  }, [onLogLocationInteraction]);
+
+  const openExternalMap = useCallback((url: string) => {
+    void Linking.openURL(url);
   }, []);
 
   const combinedError = viewportError ?? error;
@@ -559,9 +680,6 @@ export function MapboxPlaceholder({
           visible
         />
         <Mapbox.ShapeSource
-          cluster
-          clusterMaxZoomLevel={11}
-          clusterRadius={34}
           hitbox={{ width: 28, height: 28 }}
           id="locations-shape-source"
           onPress={onShapePress}
@@ -569,60 +687,24 @@ export function MapboxPlaceholder({
           shape={locationFeatureCollection}
         >
           <Mapbox.CircleLayer
-            id="locations-cluster-circle"
-            filter={["has", "point_count"]}
-            style={{
-              circleColor: "#5a321b",
-              circleRadius: [
-                "step",
-                ["get", "point_count"],
-                14,
-                20,
-                17,
-                40,
-                20,
-              ],
-              circleOpacity: 0.9,
-              circleStrokeColor: "#fdfbf4",
-              circleStrokeWidth: 2,
-            }}
-          />
-          <Mapbox.SymbolLayer
-            id="locations-cluster-count"
-            filter={["has", "point_count"]}
-            style={{
-              textField: ["get", "point_count_abbreviated"],
-              textColor: "#fdfbf4",
-              textSize: 12,
-              textFont: ["Open Sans Bold"],
-              textAllowOverlap: true,
-              textIgnorePlacement: true,
-            }}
-          />
-          <Mapbox.CircleLayer
             id="locations-point-circle"
-            filter={["!", ["has", "point_count"]]}
             style={{
-              circleColor: "#5a321b",
-              circleRadius: 8,
+              circleColor: "#7A5C3B",
+              circleRadius: 7,
               circleOpacity: 0.95,
               circleStrokeColor: "#ffffff",
-              circleStrokeWidth: 2,
+              circleStrokeWidth: 1.5,
             }}
           />
           <Mapbox.CircleLayer
             id="locations-point-selected"
-            filter={[
-              "all",
-              ["!", ["has", "point_count"]],
-              ["==", ["get", "locationId"], selectedLocationId ?? "__none__"],
-            ]}
+            filter={["==", ["get", "locationId"], selectedLocationId ?? "__none__"] as any}
             style={{
-              circleColor: "#7a4728",
-              circleRadius: 10,
+              circleColor: "#2F5634",
+              circleRadius: 9,
               circleOpacity: 1,
               circleStrokeColor: "#ffffff",
-              circleStrokeWidth: 2,
+              circleStrokeWidth: 2.5,
             }}
           />
         </Mapbox.ShapeSource>
@@ -674,124 +756,51 @@ export function MapboxPlaceholder({
         </Pressable>
       ) : null}
 
-      {isSearchActive ? (
-        <>
-          <View style={styles.filterBar}>
-            <Pressable
-              onPress={() => setIntent((prev) => ({ ...prev, openNow: !prev.openNow, openAtMinutes: null }))}
-              style={[styles.filterChip, intent.openNow && styles.filterChipActive]}
-            >
-              <Text style={[styles.filterChipText, intent.openNow && styles.filterChipTextActive]}>
-                Open Now
-              </Text>
-            </Pressable>
+      <View style={styles.filterBar}>
+        <Pressable
+          onPress={() => setIntent((prev) => ({ ...prev, openNow: !prev.openNow }))}
+          style={[styles.filterChip, intent.openNow && styles.filterChipActive]}
+        >
+          <Text style={[styles.filterChipText, intent.openNow && styles.filterChipTextActive]}>Open Now</Text>
+        </Pressable>
 
-            <Pressable
-              onPress={() => {
-                setIntent((prev) => {
-                  const nextQuiet = prev.minQuietLevel === 4 ? null : prev.minQuietLevel === 3 ? 4 : 3;
-                  return { ...prev, minQuietLevel: nextQuiet };
-                });
-              }}
-              style={[styles.filterChip, Boolean(intent.minQuietLevel) && styles.filterChipActive]}
-            >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  Boolean(intent.minQuietLevel) && styles.filterChipTextActive,
-                ]}
-              >
-                {intent.minQuietLevel ? `Quiet ${intent.minQuietLevel}+` : "Quiet Any"}
-              </Text>
-            </Pressable>
+        <Pressable
+          onPress={() => {
+            setMaxDistanceMeters((previous) => {
+              const currentIndex = DISTANCE_OPTIONS_METERS.findIndex((value) => value === previous);
+              const nextIndex = currentIndex === DISTANCE_OPTIONS_METERS.length - 1 ? 0 : currentIndex + 1;
+              return DISTANCE_OPTIONS_METERS[nextIndex];
+            });
+          }}
+          style={[styles.filterChip, maxDistanceMeters !== null && styles.filterChipActive]}
+        >
+          <Text style={[styles.filterChipText, maxDistanceMeters !== null && styles.filterChipTextActive]}>
+            {formatDistanceFilterLabel(maxDistanceMeters)}
+          </Text>
+        </Pressable>
 
-            <Pressable
-              onPress={() =>
-                setIntent((prev) => ({
-                  ...prev,
-                  hasOutlets: prev.hasOutlets ? null : true,
-                }))
-              }
-              style={[styles.filterChip, intent.hasOutlets === true && styles.filterChipActive]}
-            >
-              <Text style={[styles.filterChipText, intent.hasOutlets === true && styles.filterChipTextActive]}>
-                Outlets
-              </Text>
-            </Pressable>
-          </View>
+        <Pressable
+          onPress={() => setCafeOnly((previous) => !previous)}
+          style={[styles.filterChip, cafeOnly && styles.filterChipActive]}
+        >
+          <Text style={[styles.filterChipText, cafeOnly && styles.filterChipTextActive]}>
+            Cafes/Coffee
+          </Text>
+        </Pressable>
 
-          <View style={styles.filterBarSecondary}>
-            <Pressable
-              onPress={() =>
-                setIntent((prev) => {
-                  const currentIndex = OPEN_AT_OPTIONS.findIndex((value) => value === prev.openAtMinutes);
-                  const nextIndex = currentIndex === OPEN_AT_OPTIONS.length - 1 ? 0 : currentIndex + 1;
-                  return {
-                    ...prev,
-                    openNow: false,
-                    openAtMinutes: OPEN_AT_OPTIONS[nextIndex],
-                  };
-                })
-              }
-              style={[styles.filterChip, intent.openAtMinutes !== null && styles.filterChipActive]}
-            >
-              <Text
-                style={[styles.filterChipText, intent.openAtMinutes !== null && styles.filterChipTextActive]}
-              >
-                {`Open At ${formatMinutesLabel(intent.openAtMinutes)}`}
-              </Text>
-            </Pressable>
-
-            {CATEGORY_CHIPS.map((chip) => (
-              <Pressable
-                key={chip.value}
-                onPress={() =>
-                  setIntent((prev) => {
-                    const hasCategory = prev.categories.includes(chip.value);
-                    const nextCategories = hasCategory
-                      ? prev.categories.filter((value) => value !== chip.value)
-                      : [...prev.categories, chip.value];
-                    return { ...prev, categories: nextCategories };
-                  })
-                }
-                style={[styles.filterChip, intent.categories.includes(chip.value) && styles.filterChipActive]}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    intent.categories.includes(chip.value) && styles.filterChipTextActive,
-                  ]}
-                >
-                  {chip.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.filterBarTertiary}>
-            <Pressable
-              onPress={() =>
-                setIntent((prev) => ({
-                  ...prev,
-                  ...parseNaturalLanguageToIntent(prev.queryText),
-                }))
-              }
-              style={styles.filterChip}
-            >
-              <Text style={styles.filterChipText}>Apply Text Filters</Text>
-            </Pressable>
-
-            {hasActiveFilters ? (
-              <Pressable
-                onPress={() => setIntent(DEFAULT_SEARCH_INTENT)}
-                style={[styles.filterChip, styles.filterChipReset]}
-              >
-                <Text style={styles.filterChipText}>Reset</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </>
-      ) : null}
+        {hasActiveFilters ? (
+          <Pressable
+            onPress={() => {
+              setIntent(DEFAULT_SEARCH_INTENT);
+              setMaxDistanceMeters(null);
+              setCafeOnly(false);
+            }}
+            style={[styles.filterChip, styles.filterChipReset]}
+          >
+            <Text style={styles.filterChipText}>Reset</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       {mapIsLoading ? (
         <View style={styles.loadingOverlay}>
@@ -821,57 +830,141 @@ export function MapboxPlaceholder({
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>No locations match these filters</Text>
           <Text style={styles.errorText}>Try widening the map or resetting filters.</Text>
-          <Pressable onPress={() => setIntent(DEFAULT_SEARCH_INTENT)} style={styles.retryButton}>
+          <Pressable
+            onPress={() => {
+              setIntent(DEFAULT_SEARCH_INTENT);
+              setMaxDistanceMeters(null);
+              setCafeOnly(false);
+            }}
+            style={styles.retryButton}
+          >
             <Text style={styles.retryButtonText}>Reset Filters</Text>
           </Pressable>
         </View>
       ) : null}
 
-      {selectedLocation ? (
-        <View style={styles.selectionCard}>
-          <Text style={styles.selectionTitle}>{selectedLocation.name}</Text>
-          <Text style={styles.selectionSubtitle}>
-            {selectedLocation.address ?? "Address not available"}
-          </Text>
-          <Text style={styles.selectionMeta}>
-            Quiet {selectedLocation.quiet_level}/5 • {selectedLocation.has_outlets ? "Outlets" : "No outlet data"}
-          </Text>
-          {intent.openNow || intent.openAtMinutes !== null ? (
-            <Text style={styles.selectionMeta}>
-              {isLocationOpenNow(selectedLocation, new Date()) === false
-                ? "Closed now"
-                : "Open now or hours unavailable"}
-            </Text>
-          ) : null}
-          <View style={styles.availabilityCard}>
-            <Text style={styles.availabilityTitle}>
-              {selectedLocationAvailability?.availability_label ?? "AI availability"}
-            </Text>
-            {availabilityLoading ? (
-              <Text style={styles.selectionMeta}>Updating availability...</Text>
-            ) : null}
-            {!availabilityLoading && selectedLocationAvailability ? (
-              <Text style={styles.selectionMeta}>
-                {selectedLocationAvailability.occupancy_percent}% full • Confidence{" "}
-                {Math.round(selectedLocationAvailability.confidence * 100)}%
-              </Text>
-            ) : null}
-            {availabilityError ? <Text style={styles.selectionMeta}>{availabilityError}</Text> : null}
+      {!mapIsLoading && !combinedError && topRankedWithDistance.length > 0 ? (
+        <Animated.View
+          pointerEvents={showRecommendations ? "auto" : "none"}
+          style={[
+            styles.rankedSheet,
+            {
+              opacity: recommendationsVisibility,
+              transform: [
+                {
+                  translateY: recommendationsVisibility.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [RECOMMENDATIONS_SHEET_COLLAPSE_OFFSET, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.rankedHeaderRow}>
+            <Text style={styles.rankedTitle}>Nearest study-friendly spots</Text>
+            <View style={styles.rankedHeaderActions}>
+              <Pressable
+                disabled={recommendationsPage <= 0}
+                onPress={() => setRecommendationsPage((previous) => Math.max(0, previous - 1))}
+                style={[styles.rankedNavChip, recommendationsPage <= 0 && styles.rankedNavChipDisabled]}
+              >
+                <Text style={styles.rankedNavText}>←</Text>
+              </Pressable>
+              <Text style={styles.rankedPageText}>{`${recommendationsPage + 1}/${totalRecommendationPages}`}</Text>
+              <Pressable
+                disabled={recommendationsPage >= totalRecommendationPages - 1}
+                onPress={() => setRecommendationsPage((previous) => Math.min(totalRecommendationPages - 1, previous + 1))}
+                style={[
+                  styles.rankedNavChip,
+                  recommendationsPage >= totalRecommendationPages - 1 && styles.rankedNavChipDisabled,
+                ]}
+              >
+                <Text style={styles.rankedNavText}>→</Text>
+              </Pressable>
+              <Pressable onPress={() => setShowRecommendations(false)} style={styles.rankedToggleChip}>
+                <Text style={styles.rankedToggleText}>Hide</Text>
+              </Pressable>
+            </View>
           </View>
-          <Pressable
-            disabled={!canCheckIn}
-            onPress={() => onOpenCheckinsForLocation(selectedLocation.id)}
-            style={({ pressed }) => [
-              styles.checkinCtaButton,
-              !canCheckIn && styles.occupancyButtonDisabled,
-              pressed && styles.occupancyButtonPressed,
-            ]}
+          <ScrollView
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            style={styles.rankedScroll}
+            contentContainerStyle={styles.rankedScrollContent}
           >
-            <Text style={styles.checkinCtaButtonText}>Check In At This Spot</Text>
-          </Pressable>
-          {canCheckIn ? null : <Text style={styles.selectionMeta}>Sign in to check in.</Text>}
-        </View>
+            {topRankedWithDistance.map(({ location, distanceMeters }) => {
+              const occupancy = topAvailabilityById[location.id]?.occupancy_percent ?? null;
+              const availabilityPercent = occupancy === null ? null : Math.max(0, 100 - occupancy);
+              const isExpanded = selectedLocationId === location.id;
+              return (
+                <Pressable
+                  key={location.id}
+                  onPress={() => {
+                    setSelectedLocationId(location.id);
+                    void onLogLocationInteraction(location.id, "click");
+                    cameraRef.current?.setCamera({
+                      centerCoordinate: [location.longitude, location.latitude],
+                      zoomLevel: 13,
+                      animationDuration: 280,
+                      animationMode: "easeTo",
+                    });
+                  }}
+                  style={[styles.rankedCard, isExpanded && styles.rankedCardExpanded]}
+                >
+                <View style={styles.rankedCardTopRow}>
+                  <Text numberOfLines={1} style={styles.rankedName}>{location.name}</Text>
+                  <Text style={styles.rankedAvailability}>
+                    {availabilityPercent === null ? "--%" : `${availabilityPercent}% open`}
+                  </Text>
+                </View>
+                <Text numberOfLines={1} style={styles.rankedMeta}>
+                  {location.quiet_level >= 4 ? "quiet" : "moderate noise"} • {location.has_outlets ? "outlets" : "no outlet data"} • {formatDistance(distanceMeters)}
+                </Text>
+                {isExpanded ? (
+                  <View style={styles.rankedExpandedDetails}>
+                    <LocationDetailScreen
+                      accessToken={accessToken}
+                      availabilityPercent={availabilityPercent}
+                      canCheckIn={canCheckIn}
+                      confidencePercent={Math.round((topAvailabilityById[location.id]?.confidence ?? 0.5) * 100)}
+                      location={location}
+                      onCheckInPress={() => onOpenCheckinsForLocation(location.id)}
+                      onOpenAppleMaps={() => openExternalMap(getAppleMapsUrl(location))}
+                      onOpenGoogleMaps={() => openExternalMap(getGoogleMapsUrl(location))}
+                    />
+                  </View>
+                ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
       ) : null}
+      {!mapIsLoading && !combinedError && topRankedWithDistance.length > 0 ? (
+        <Animated.View
+          pointerEvents={showRecommendations ? "none" : "auto"}
+          style={{
+            opacity: recommendationsVisibility.interpolate({
+              inputRange: [0, 1],
+              outputRange: [1, 0],
+            }),
+            transform: [
+              {
+                translateY: recommendationsVisibility.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 8],
+                }),
+              },
+            ],
+          }}
+        >
+          <Pressable onPress={() => setShowRecommendations(true)} style={styles.rankedCollapsedHandle}>
+            <Text style={styles.rankedCollapsedHandleText}>Show spots</Text>
+          </Pressable>
+        </Animated.View>
+      ) : null}
+
     </View>
   );
 }
@@ -1067,7 +1160,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
-    bottom: 12,
+    bottom: 180,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#d6cdb8",
@@ -1099,6 +1192,137 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#334226",
+  },
+  rankedSheet: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#d6cdb8",
+    backgroundColor: "rgba(255, 253, 248, 0.98)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+    maxHeight: 320,
+  },
+  rankedScroll: {
+    maxHeight: 270,
+  },
+  rankedScrollContent: {
+    gap: 8,
+    paddingBottom: 2,
+  },
+  rankedTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#334226",
+  },
+  rankedHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  rankedHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  rankedNavChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#c8d8bf",
+    backgroundColor: "#eef7e8",
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rankedNavChipDisabled: {
+    opacity: 0.4,
+  },
+  rankedNavText: {
+    fontSize: 14,
+    color: "#2f5634",
+    fontWeight: "800",
+    marginTop: -1,
+  },
+  rankedPageText: {
+    fontSize: 11,
+    color: "#4f5d48",
+    fontWeight: "700",
+    minWidth: 34,
+    textAlign: "center",
+  },
+  rankedToggleChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#c8d8bf",
+    backgroundColor: "#eef7e8",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  rankedToggleText: {
+    fontSize: 11,
+    color: "#2f5634",
+    fontWeight: "700",
+  },
+  rankedCollapsedHandle: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#c8d8bf",
+    backgroundColor: "rgba(238, 247, 232, 0.98)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  rankedCollapsedHandleText: {
+    fontSize: 12,
+    color: "#2f5634",
+    fontWeight: "700",
+  },
+  rankedCard: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e5dac7",
+    backgroundColor: "#fffaf0",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  rankedCardExpanded: {
+    borderColor: "#bccfaf",
+    backgroundColor: "#f7fbf4",
+  },
+  rankedExpandedDetails: {
+    marginTop: 6,
+    gap: 4,
+  },
+  rankedCardTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  rankedName: {
+    flex: 1,
+    fontSize: 13,
+    color: "#344131",
+    fontWeight: "700",
+  },
+  rankedAvailability: {
+    fontSize: 12,
+    color: "#2f5634",
+    fontWeight: "800",
+  },
+  rankedMeta: {
+    fontSize: 11,
+    color: "#676857",
+    fontWeight: "600",
   },
   selectionCard: {
     position: "absolute",
@@ -1141,26 +1365,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     color: "#374c2f",
-  },
-  checkinCtaButton: {
-    marginTop: 6,
-    alignSelf: "flex-start",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#6d7a5a",
-    backgroundColor: "#fdfbf4",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  occupancyButtonDisabled: {
-    opacity: 0.6,
-  },
-  occupancyButtonPressed: {
-    opacity: 0.75,
-  },
-  checkinCtaButtonText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#334226",
   },
 });

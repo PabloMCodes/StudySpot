@@ -188,6 +188,9 @@ When generating code, AI must:
 - Respect domain ownership.
 - Keep implementations minimal and clear.
 - Avoid speculative improvements.
+- Do not create new files.
+- Only modify existing files.
+- If a new file seems necessary, stop and ask for approval first.
 
 If unsure, generate the minimal valid implementation.
 

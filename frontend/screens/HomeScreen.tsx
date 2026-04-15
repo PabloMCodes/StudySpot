@@ -6,24 +6,29 @@ import { MapContainer } from "../components/map/MapContainer";
 import { useAuth } from "../context/AuthContext";
 import { CheckinsScreen } from "./CheckinsScreen";
 import { SavedScreen, type SavedSpotMeta } from "./SavedScreen";
-import { createCheckin, getNearbyCheckinPrompt } from "../services/checkinService";
+import { getNearbyCheckinPrompt } from "../services/checkinService";
 import {
   getCurrentCoordinatesIfPermitted,
   requestForegroundCoordinates,
 } from "../services/deviceLocationService";
-import { getLocationAvailability, getLocations } from "../services/locationService";
+import { getLocationAvailability, getLocations, logLocationInteraction } from "../services/locationService";
 import {
   requestNotificationPermission,
   sendCheckinPromptNotification,
 } from "../services/notificationService";
-import type { CheckinAvailability, CheckinPrompt, OccupancyPercent } from "../types/checkin";
+import type { CheckinAvailability, CheckinPrompt } from "../types/checkin";
 import type { Location, UserCoordinates } from "../types/location";
 
 type HomeTab = "map" | "checkins" | "saved" | "profile";
 const TAB_BAR_RESERVED_HEIGHT = 80;
 const CHECKIN_PROMPT_POLL_MS = 60 * 1000;
 const NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
-const OCCUPANCY_OPTIONS: OccupancyPercent[] = [0, 25, 50, 75, 100];
+const INTERACTION_DEDUP_MS = 5_000;
+
+function isUnauthorizedError(message: string | null | undefined): boolean {
+  const normalized = (message ?? "").toLowerCase();
+  return normalized.includes("unauthorized") || normalized.includes("credential") || normalized.includes("token");
+}
 
 export function HomeScreen() {
   const { accessToken, setAccessToken } = useAuth();
@@ -36,34 +41,50 @@ export function HomeScreen() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [nearbyPrompt, setNearbyPrompt] = useState<CheckinPrompt | null>(null);
-  const [checkinSubmitting, setCheckinSubmitting] = useState(false);
-  const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
   const [preferredCheckinLocationId, setPreferredCheckinLocationId] = useState<string | null>(null);
   const lastNotificationRef = useRef<{ key: string; sentAt: number } | null>(null);
+  const lastInteractionRef = useRef<Record<string, number>>({});
 
   const loadLocations = useCallback(async (coords: UserCoordinates | null) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await getLocations(
-        coords
-          ? {
-              lat: coords.lat,
-              lng: coords.lng,
-              limit: 100,
-              sort: "distance",
-            }
-          : { limit: 100, sort: "name" },
-      );
+      const primaryParams = coords
+        ? {
+            lat: coords.lat,
+            lng: coords.lng,
+            limit: 45,
+            sort: "distance" as const,
+          }
+        : { limit: 45, sort: "name" as const };
 
-      if (!response.success || !response.data) {
-        setLocations([]);
-        setError(response.error ?? "Failed to load locations");
+      const primaryResponse = await getLocations(primaryParams);
+      if (primaryResponse.success && primaryResponse.data) {
+        setLocations(primaryResponse.data);
         return;
       }
 
-      setLocations(response.data);
+      // Fallback to a simpler query when the distance recommendation call is slow/unavailable.
+      const fallbackResponse = await getLocations({ limit: 45, sort: "name" });
+      if (fallbackResponse.success && fallbackResponse.data) {
+        setLocations(fallbackResponse.data);
+        setError(null);
+        return;
+      }
+
+      setLocations([]);
+      setError(primaryResponse.error ?? fallbackResponse.error ?? "Failed to load locations");
     } catch {
+      try {
+        const fallbackResponse = await getLocations({ limit: 45, sort: "name" });
+        if (fallbackResponse.success && fallbackResponse.data) {
+          setLocations(fallbackResponse.data);
+          setError(null);
+          return;
+        }
+      } catch {
+        // no-op; final error set below
+      }
       setLocations([]);
       setError("Failed to load locations");
     } finally {
@@ -119,6 +140,9 @@ export function HomeScreen() {
         lng: freshCoords.lng,
       });
       if (!response.success || !response.data) {
+        if (isUnauthorizedError(response.error)) {
+          setAccessToken(null);
+        }
         setNearbyPrompt(null);
         return;
       }
@@ -163,54 +187,6 @@ export function HomeScreen() {
     return () => clearInterval(timer);
   }, [accessToken, pollCheckinPrompt]);
 
-  const handleCheckinSubmit = useCallback(
-    async (occupancyPercent: OccupancyPercent, locationId?: string) => {
-      const targetLocationId = locationId ?? nearbyPrompt?.location_id;
-      if (!accessToken || !targetLocationId) {
-        return;
-      }
-      if (!userCoordinates) {
-        setCheckinMessage("Turn on location services to check in.");
-        return;
-      }
-
-      setCheckinSubmitting(true);
-      setCheckinMessage(null);
-      try {
-        const response = await createCheckin(accessToken, {
-          location_id: targetLocationId,
-          occupancy_percent: occupancyPercent,
-          lat: userCoordinates.lat,
-          lng: userCoordinates.lng,
-        });
-        if (!response.success) {
-          setCheckinMessage(response.error ?? "Failed to check in");
-          return;
-        }
-
-        const estimatedOccupancy = response.data?.availability.occupancy_percent;
-        setCheckinMessage(
-          estimatedOccupancy !== undefined
-            ? `Checked in. Estimated occupancy: ${estimatedOccupancy}%`
-            : "Checked in successfully.",
-        );
-        setNearbyPrompt((previous) =>
-          previous
-            ? {
-                ...previous,
-                should_prompt: false,
-              }
-            : previous,
-        );
-      } catch {
-        setCheckinMessage("Failed to check in");
-      } finally {
-        setCheckinSubmitting(false);
-      }
-    },
-    [accessToken, nearbyPrompt, userCoordinates],
-  );
-
   const loadLocationAvailability = useCallback(async (locationId: string) => {
     const response = await getLocationAvailability(locationId);
     if (!response.success || !response.data) {
@@ -229,6 +205,21 @@ export function HomeScreen() {
   const openCheckinsForLocation = useCallback((locationId: string) => {
     setPreferredCheckinLocationId(locationId);
     setActiveTab("checkins");
+  }, []);
+
+  const handleLogLocationInteraction = useCallback(async (locationId: string, interactionType: "view" | "click") => {
+    const key = `${locationId}:${interactionType}`;
+    const now = Date.now();
+    const lastLoggedAt = lastInteractionRef.current[key] ?? 0;
+    if (now - lastLoggedAt < INTERACTION_DEDUP_MS) {
+      return;
+    }
+    lastInteractionRef.current[key] = now;
+    try {
+      await logLocationInteraction(locationId, interactionType);
+    } catch {
+      // no-op: analytics should not block user actions
+    }
   }, []);
 
   const handleSaveSpot = useCallback((locationId: string) => {
@@ -252,6 +243,8 @@ export function HomeScreen() {
       return next;
     });
   }, []);
+
+  const promptLocationId = nearbyPrompt?.location_id ?? null;
 
   const handleRateSpot = useCallback((locationId: string, rating: number) => {
     setSavedSpotsById((prev) => ({
@@ -292,6 +285,7 @@ export function HomeScreen() {
         <CheckinsScreen
           accessToken={accessToken}
           locations={locations}
+          onAuthExpired={() => setAccessToken(null)}
           onConsumePreferredLocation={() => setPreferredCheckinLocationId(null)}
           preferredLocationId={preferredCheckinLocationId}
           userCoordinates={userCoordinates}
@@ -311,14 +305,16 @@ export function HomeScreen() {
     }
 
     return (
-      <MapContainer
-        canCheckIn={Boolean(accessToken)}
-        error={error}
-        loading={loading}
-        locations={locations}
-        onOpenCheckinsForLocation={openCheckinsForLocation}
-        onLoadAvailability={loadLocationAvailability}
-        onRetry={() => void loadLocations(userCoordinates)}
+        <MapContainer
+          accessToken={accessToken}
+          canCheckIn={Boolean(accessToken)}
+          error={error}
+          loading={loading}
+          locations={locations}
+          onLogLocationInteraction={handleLogLocationInteraction}
+          onOpenCheckinsForLocation={openCheckinsForLocation}
+          onLoadAvailability={loadLocationAvailability}
+          onRetry={() => void loadLocations(userCoordinates)}
         userCoordinates={userCoordinates}
       />
     );
@@ -349,35 +345,27 @@ export function HomeScreen() {
             </Pressable>
           </View>
         </SafeAreaView>
-        {nearbyPrompt?.should_prompt && nearbyPrompt.location_id ? (
+        {nearbyPrompt && nearbyPrompt.should_prompt && promptLocationId ? (
           <View style={styles.checkinPromptCard}>
             <Text style={styles.checkinPromptTitle}>
-              {nearbyPrompt.message ?? "Studying nearby? Make sure to check in!"}
+              {`Studying at ${nearbyPrompt.location_name ?? "this spot"}?`}
             </Text>
             <Text style={styles.checkinPromptMeta}>
               {nearbyPrompt.distance_meters
-                ? `About ${Math.round(nearbyPrompt.distance_meters)}m away`
-                : "Nearby location detected"}
+                ? `Make sure to check in. About ${Math.round(nearbyPrompt.distance_meters)}m away.`
+                : "Make sure to check in."}
             </Text>
-            <View style={styles.checkinOptionsRow}>
-              {OCCUPANCY_OPTIONS.map((option) => (
-                <Pressable
-                  key={option}
-                  disabled={checkinSubmitting}
-                  onPress={() => void handleCheckinSubmit(option)}
-                  style={({ pressed }) => [
-                    styles.occupancyButton,
-                    checkinSubmitting && styles.occupancyButtonDisabled,
-                    pressed && styles.occupancyButtonPressed,
-                  ]}
-                >
-                  <Text style={styles.occupancyButtonText}>{option}%</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Pressable
+              onPress={() => openCheckinsForLocation(promptLocationId)}
+              style={({ pressed }) => [
+                styles.checkinPromptActionButton,
+                pressed && styles.checkinPromptActionButtonPressed,
+              ]}
+            >
+              <Text style={styles.checkinPromptActionText}>Check In At This Spot</Text>
+            </Pressable>
           </View>
         ) : null}
-        {checkinMessage ? <Text style={styles.checkinMessage}>{checkinMessage}</Text> : null}
 
         <View style={styles.contentSurface}>{renderContent()}</View>
 
@@ -523,37 +511,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  checkinOptionsRow: {
+  checkinPromptActionButton: {
     marginTop: 4,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  occupancyButton: {
+    alignSelf: "flex-start",
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "#c9b28a",
     backgroundColor: "#fffdf8",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
   },
-  occupancyButtonPressed: {
+  checkinPromptActionButtonPressed: {
     opacity: 0.8,
   },
-  occupancyButtonDisabled: {
-    opacity: 0.5,
-  },
-  occupancyButtonText: {
+  checkinPromptActionText: {
     color: "#5a4931",
     fontSize: 12,
     fontWeight: "800",
-  },
-  checkinMessage: {
-    marginHorizontal: 14,
-    marginBottom: 8,
-    color: "#4c5f44",
-    fontSize: 12,
-    fontWeight: "700",
   },
   placeholderSurface: {
     flex: 1,

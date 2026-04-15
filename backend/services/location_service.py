@@ -14,6 +14,60 @@ from sqlalchemy.orm import Session
 from models.location import Location
 
 EARTH_RADIUS_METERS = 6_371_000
+MAX_RECOMMENDATIONS = 15
+
+EXCLUDED_TYPE_TOKENS = {
+    "gas_station",
+    "convenience_store",
+    "fast_food",
+    "grocery_or_supermarket",
+    "department_store",
+    "shopping_mall",
+    "supermarket",
+    "drugstore",
+    "pharmacy",
+    "hardware_store",
+    "home_goods_store",
+    "electronics_store",
+}
+EXCLUDED_NAME_TOKENS = {
+    "gas",
+    "shell",
+    "chevron",
+    "exxon",
+    "bp",
+    "wawa",
+    "racetrac",
+    "race trac",
+    "7-eleven",
+    "7 eleven",
+    "circle k",
+    "speedway",
+    "pilot",
+    "sunoco",
+    "mobil",
+    "cumberland farms",
+    "drive-thru",
+    "drive thru",
+    "mcdonald",
+    "burger king",
+    "wendy's",
+    "taco bell",
+    "kfc",
+    "walmart",
+    "target",
+    "costco",
+    "sam's club",
+    "sams club",
+    "aldi",
+    "publix",
+    "whole foods",
+    "trader joe",
+    "dollar tree",
+    "dollar general",
+    "family dollar",
+}
+INCLUDED_HINT_TOKENS = {"cafe", "coffee", "library", "bookstore", "study", "restaurant"}
 
 
 def _distance_meters_expression(lat: float, lng: float):
@@ -108,3 +162,64 @@ def list_locations_filtered(
 
     statement = statement.offset(offset).limit(limit)
     return list(db.scalars(statement).all())
+
+
+def is_study_friendly_location(location: Location) -> bool:
+    types_text = " ".join(location.types or []).lower()
+    searchable = " ".join(
+        [
+            location.name.lower(),
+            (location.category or "").lower(),
+            (location.description or "").lower(),
+            (location.editorial_summary or "").lower(),
+            types_text,
+        ]
+    )
+
+    if any(token in types_text for token in EXCLUDED_TYPE_TOKENS):
+        return False
+    if any(token in searchable for token in EXCLUDED_NAME_TOKENS):
+        return False
+
+    has_seating_signal = location.has_outlets or location.quiet_level >= 3 or any(
+        token in searchable for token in ("seat", "seating", "table", "study", "library", "bookstore")
+    )
+    if not has_seating_signal:
+        return False
+
+    if any(token in searchable for token in INCLUDED_HINT_TOKENS):
+        return True
+
+    # Keep neutral locations unless they match known bad patterns above.
+    return True
+
+
+def list_recommended_locations(
+    db: Session,
+    *,
+    lat: float,
+    lng: float,
+    radius_m: float | None = None,
+    query_text: str | None = None,
+    offset: int = 0,
+    limit: int = MAX_RECOMMENDATIONS,
+) -> list[Location]:
+    if offset < 0:
+        offset = 0
+    if limit < 1:
+        limit = 1
+
+    candidate_limit = max((offset + limit) * 4, 100)
+    candidates = list_locations_filtered(
+        db,
+        lat=lat,
+        lng=lng,
+        radius_m=radius_m,
+        query_text=query_text,
+        sort="distance",
+        limit=candidate_limit,
+        offset=0,
+    )
+    filtered = [location for location in candidates if is_study_friendly_location(location)]
+    page_end = offset + limit
+    return filtered[offset:page_end]

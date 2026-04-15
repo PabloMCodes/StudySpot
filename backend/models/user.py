@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from models.checkin import CheckIn
     from models.comment import Comment
     from models.follow import Follow
+    from models.session_photo import PhotoFeedback, SessionPhoto
     from models.session import SessionParticipant, StudySession
     from models.user_location import UserLocation
 
@@ -88,6 +89,16 @@ class User(Base):
     following: Mapped[list[Follow]] = relationship(
         back_populates="follower_user",
         foreign_keys="Follow.follower_id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    session_photos: Mapped[list[SessionPhoto]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    photo_feedback: Mapped[list[PhotoFeedback]] = relationship(
+        back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
