@@ -5,15 +5,22 @@ This means all auth business logic lives here, not in routes.
 
 from __future__ import annotations
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import google.auth.transport.requests
 import google.oauth2.id_token
 from jose import jwt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from models.checkin import CheckIn
+from models.comment import Comment
+from models.follow import Follow
+from models.location import Location
+from models.session import PersonalStudySession
+from models.user_location import UserLocation
 from models.user import User
 
 
@@ -122,3 +129,82 @@ def create_jwt_for_user(user_id: str):
     expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
     payload = {"sub": user_id, "exp": expire}
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+
+def get_user_profile_summary(db: Session, *, user_id: uuid.UUID) -> dict:
+    """Build a profile summary with aggregate counts and lightweight highlights."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise ValueError("User not found")
+
+    total_checkins = db.scalar(
+        select(func.count(CheckIn.id)).where(CheckIn.user_id == user_id)
+    ) or 0
+    follower_count = db.scalar(
+        select(func.count()).select_from(Follow).where(Follow.following_id == user_id)
+    ) or 0
+    following_count = db.scalar(
+        select(func.count()).select_from(Follow).where(Follow.follower_id == user_id)
+    ) or 0
+    saved_locations_count = db.scalar(
+        select(func.count()).select_from(UserLocation).where(UserLocation.user_id == user_id)
+    ) or 0
+    total_comments = db.scalar(
+        select(func.count()).select_from(Comment).where(Comment.user_id == user_id)
+    ) or 0
+
+    most_visited_rows = db.execute(
+        select(
+            Location.id.label("location_id"),
+            Location.name.label("name"),
+            func.count(CheckIn.id).label("visit_count"),
+        )
+        .join(CheckIn, CheckIn.location_id == Location.id)
+        .where(CheckIn.user_id == user_id)
+        .group_by(Location.id, Location.name)
+        .order_by(func.count(CheckIn.id).desc(), Location.name.asc())
+        .limit(3)
+    ).all()
+
+    most_studied_topic_rows = db.execute(
+        select(
+            PersonalStudySession.topic.label("topic"),
+            func.count(PersonalStudySession.id).label("session_count"),
+        )
+        .where(
+            PersonalStudySession.user_id == user_id,
+            PersonalStudySession.topic.is_not(None),
+            PersonalStudySession.topic != "",
+        )
+        .group_by(PersonalStudySession.topic)
+        .order_by(func.count(PersonalStudySession.id).desc(), PersonalStudySession.topic.asc())
+        .limit(3)
+    ).all()
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "profile_picture": user.profile_picture,
+        "created_at": user.created_at,
+        "total_checkins": int(total_checkins),
+        "follower_count": int(follower_count),
+        "following_count": int(following_count),
+        "saved_locations_count": int(saved_locations_count),
+        "total_comments": int(total_comments),
+        "most_visited_locations": [
+            {
+                "location_id": row.location_id,
+                "name": row.name,
+                "visit_count": int(row.visit_count),
+            }
+            for row in most_visited_rows
+        ],
+        "most_studied_topics": [
+            {
+                "topic": row.topic,
+                "session_count": int(row.session_count),
+            }
+            for row in most_studied_topic_rows
+        ],
+    }

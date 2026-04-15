@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from dependencies.auth_dependency import get_current_user_id
 from schemas.user_schema import FollowUserResponse
-from services import follow_service
+from services import follows_service as follow_service
 
 router = APIRouter(prefix="/users", tags=["follows"])
 

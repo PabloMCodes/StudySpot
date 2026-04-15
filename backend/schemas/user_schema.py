@@ -32,6 +32,44 @@ class UserPrivateResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class UserVisitedLocationResponse(BaseModel):
+    """Top location entry shown on a user's profile."""
+
+    location_id: UUID
+    name: str
+    visit_count: int
+
+
+class UserStudyTopicResponse(BaseModel):
+    """Top study topic entry shown on a user's profile."""
+
+    topic: str
+    session_count: int
+
+
+class UserProfileResponse(BaseModel):
+    """Public user profile summary."""
+
+    id: UUID
+    name: str | None = None
+    profile_picture: str | None = None
+    created_at: datetime
+    total_checkins: int
+    follower_count: int
+    following_count: int
+    saved_locations_count: int
+    total_comments: int
+    most_visited_locations: list[UserVisitedLocationResponse]
+    most_studied_topics: list[UserStudyTopicResponse]
+
+
+class UserPrivateProfileResponse(UserProfileResponse):
+    """Private user profile summary for the authenticated owner."""
+
+    email: str
+
+
 class FollowUserResponse(BaseModel):
     """User shape returned in follower/following list responses."""
 
