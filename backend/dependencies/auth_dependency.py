@@ -7,7 +7,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -20,16 +21,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/google", auto_error=True) #
 optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/google", auto_error=False) # same comment as above
 
 ### Standard 401 error for invalid or missing bearer credentials
-def credentials_error() -> HTTPException:
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,  
-                        detail= {"success" : False, "data" : None, "error" : "Could not validate credentials"},
-                        )
+def credentials_error() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        detail={"success" : False, "data" : None, "error" : "Could not validate credentials"},
+        )
 
 ### Decode JWT & return payload dictionary (payload)
 def decode_token(token: str) -> dict[str, Any]:
     if not auth_service.JWT_SECRET_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        raise JSONResponse(
+            status_code=500,
             detail={"success": False, "data" : None, "error" : "JWT configuration is missing (JWT_SECRET_KEY)"},
         )
     try:
