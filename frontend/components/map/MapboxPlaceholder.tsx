@@ -3,10 +3,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
+  FlatList,
   Linking,
   PanResponder,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -49,14 +49,23 @@ interface MapboxPlaceholderProps {
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
-const MAX_VISIBLE_PINS = 100;
-const TOP_RANKED_COUNT = 15;
-const DISTANCE_OPTIONS_METERS: Array<number | null> = [null, 3219, 8047, 16093];
-const DEFAULT_VIEWPORT_LIMIT = 120;
+const MAX_VISIBLE_PINS = 50;
+const MAX_VISIBLE_CARDS = 50;
+const MAP_IDLE_DEBOUNCE_MS = 220;
+const ZOOM_CHANGE_THRESHOLD = 0.2;
 const SHEET_BOTTOM_OFFSET = 12;
 const SHEET_TOP_RESERVED = 120;
 const SHEET_MIN_HEIGHT = 72;
 const SHEET_DEFAULT_HEIGHT = 300;
+
+type SortingMode = "best_spots" | "highest_availability" | "closest";
+type CategoryFilter = "all" | "cafe" | "library" | "bookstore";
+
+interface ViewportState {
+  bounds: LocationBounds;
+  zoomLevel: number | null;
+  center: UserCoordinates;
+}
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const radius = 6_371_000;
@@ -75,34 +84,6 @@ function formatDistance(meters: number | null): string {
   return `${(meters / 1000).toFixed(1)} km`;
 }
 
-function formatDistanceFilterLabel(maxDistanceMeters: number | null): string {
-  if (maxDistanceMeters === null) return "Any distance";
-  const miles = Math.round(maxDistanceMeters / 1609.34);
-  return `Within ${miles} mi`;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-function isCafeOrCoffee(location: Location): boolean {
-  const haystack = [
-    location.name,
-    location.category ?? "",
-    ...(location.types ?? []),
-    location.description ?? "",
-    location.editorial_summary ?? "",
-  ]
-    .join(" ")
-    .toLowerCase();
-  return (
-    haystack.includes("cafe") ||
-    haystack.includes("coffee") ||
-    haystack.includes("coffee shop") ||
-    haystack.includes("espresso")
-  );
-}
-
 function getGoogleMapsUrl(location: Location): string {
   if (location.maps_url && location.maps_url.trim().length > 0) {
     return location.maps_url;
@@ -113,6 +94,10 @@ function getGoogleMapsUrl(location: Location): string {
 function getAppleMapsUrl(location: Location): string {
   const label = encodeURIComponent(location.name);
   return `http://maps.apple.com/?ll=${location.latitude},${location.longitude}&q=${label}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 export function MapboxPlaceholder({
@@ -127,28 +112,28 @@ export function MapboxPlaceholder({
   onOpenCheckinsForLocation,
   onLogLocationInteraction,
 }: MapboxPlaceholderProps) {
+  const mapRef = useRef<any>(null);
   const cameraRef = useRef<Camera>(null);
   const shapeSourceRef = useRef<any>(null);
+  const cardsListRef = useRef<FlatList<Location>>(null);
+  const mapIdleDebounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoadedInitialViewportRef = useRef(false);
   const hasAutoCenteredRef = useRef(false);
-  const latestViewportRequestIdRef = useRef(0);
-  const lastViewportBoundsRef = useRef<LocationBounds | null>(null);
-  const lastViewportFetchKeyRef = useRef<string | null>(null);
+  const lastSeenViewportRef = useRef<ViewportState | null>(null);
+  const activeViewportRef = useRef<ViewportState | null>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [intent, setIntent] = useState<SearchIntent>(DEFAULT_SEARCH_INTENT);
-  const [viewportLocations, setViewportLocations] = useState<Location[]>(locations);
+  const [sortingMode, setSortingMode] = useState<SortingMode>("best_spots");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [viewportLocations, setViewportLocations] = useState<Location[]>([]);
+  const [pendingViewport, setPendingViewport] = useState<ViewportState | null>(null);
   const [viewportLoading, setViewportLoading] = useState(false);
   const [viewportError, setViewportError] = useState<string | null>(null);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<Location[]>([]);
   const [autocompleteLoading, setAutocompleteLoading] = useState(false);
-  const [selectedLocationAvailability, setSelectedLocationAvailability] = useState<CheckinAvailability | null>(null);
-  const [availabilityLoading, setAvailabilityLoading] = useState(false);
-  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [externalMapError, setExternalMapError] = useState<string | null>(null);
-  const [recommendationsPage, setRecommendationsPage] = useState(0);
-  const [maxDistanceMeters, setMaxDistanceMeters] = useState<number | null>(null);
-  const [cafeOnly, setCafeOnly] = useState(false);
   const [mapContainerHeight, setMapContainerHeight] = useState(0);
   const resolvedMapHeight = mapContainerHeight > 0 ? mapContainerHeight : 560;
   const maxSheetHeight = Math.max(SHEET_MIN_HEIGHT + 40, resolvedMapHeight - SHEET_TOP_RESERVED);
@@ -167,118 +152,189 @@ export function MapboxPlaceholder({
     ? [userCoordinates.lng, userCoordinates.lat]
     : DEFAULT_CENTER;
 
-  useEffect(() => {
-    setViewportLocations(locations);
-  }, [locations]);
-
-  useEffect(() => {
-    if (!selectedLocationId) {
-      return;
-    }
-
-    const existsInKnownPools =
-      locations.some((location) => location.id === selectedLocationId) ||
-      viewportLocations.some((location) => location.id === selectedLocationId) ||
-      autocompleteSuggestions.some((location) => location.id === selectedLocationId);
-    if (!existsInKnownPools) {
-      setSelectedLocationId(null);
-    }
-  }, [autocompleteSuggestions, locations, selectedLocationId, viewportLocations]);
-
-  const computeViewportLimit = useCallback((distanceLimitMeters: number | null, queryText: string): number => {
-    if (queryText.trim().length > 0) {
-      return 200;
-    }
-    if (distanceLimitMeters === null) {
-      return DEFAULT_VIEWPORT_LIMIT;
-    }
-    if (distanceLimitMeters <= 3219) {
-      return 160;
-    }
-    if (distanceLimitMeters <= 8047) {
-      return 190;
-    }
-    return 200;
+  const dedupeLocations = useCallback((incoming: Location[]) => {
+    const byId = new Map<string, Location>();
+    incoming.forEach((location) => {
+      if (!byId.has(location.id)) {
+        byId.set(location.id, location);
+      }
+    });
+    return Array.from(byId.values());
   }, []);
 
-  const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
-    const requestId = latestViewportRequestIdRef.current + 1;
-    latestViewportRequestIdRef.current = requestId;
+  const extractZoomLevel = useCallback((state: MapState): number | null => {
+    const rawCandidates = [
+      (state as any)?.properties?.zoom,
+      (state as any)?.properties?.zoomLevel,
+      (state as any)?.zoom,
+      (state as any)?.zoomLevel,
+    ];
+    for (const candidate of rawCandidates) {
+      const numeric = Number(candidate);
+      if (Number.isFinite(numeric)) {
+        return numeric;
+      }
+    }
+    return null;
+  }, []);
+
+  const toViewportState = useCallback(
+    (state: MapState): ViewportState | null => {
+      const bounds = boundsFromCameraState(state);
+      if (!bounds) {
+        return null;
+      }
+      return {
+        bounds,
+        zoomLevel: extractZoomLevel(state),
+        center: {
+          lat: (bounds.minLat + bounds.maxLat) / 2,
+          lng: (bounds.minLng + bounds.maxLng) / 2,
+        },
+      };
+    },
+    [extractZoomLevel],
+  );
+
+  const viewportFromVisibleBounds = useCallback((visibleBounds: unknown): ViewportState | null => {
+    if (!Array.isArray(visibleBounds) || visibleBounds.length < 2) {
+      return null;
+    }
+    const a = visibleBounds[0];
+    const b = visibleBounds[1];
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2) {
+      return null;
+    }
+    const lng1 = Number(a[0]);
+    const lat1 = Number(a[1]);
+    const lng2 = Number(b[0]);
+    const lat2 = Number(b[1]);
+    if (![lng1, lat1, lng2, lat2].every(Number.isFinite)) {
+      return null;
+    }
+    const bounds = {
+      minLat: Math.min(lat1, lat2),
+      maxLat: Math.max(lat1, lat2),
+      minLng: Math.min(lng1, lng2),
+      maxLng: Math.max(lng1, lng2),
+    };
+    return {
+      bounds,
+      zoomLevel: lastSeenViewportRef.current?.zoomLevel ?? activeViewportRef.current?.zoomLevel ?? null,
+      center: {
+        lat: (bounds.minLat + bounds.maxLat) / 2,
+        lng: (bounds.minLng + bounds.maxLng) / 2,
+      },
+    };
+  }, []);
+
+  const didViewportChange = useCallback((previous: ViewportState | null, next: ViewportState) => {
+    if (!previous) {
+      return true;
+    }
+    const boundsChanged = didBoundsChange(previous.bounds, next.bounds);
+    const previousZoom = previous.zoomLevel;
+    const nextZoom = next.zoomLevel;
+    if (previousZoom === null || nextZoom === null) {
+      return boundsChanged;
+    }
+    return boundsChanged || Math.abs(previousZoom - nextZoom) > ZOOM_CHANGE_THRESHOLD;
+  }, []);
+
+  const runViewportSearch = useCallback(async (viewport: ViewportState) => {
     setViewportLoading(true);
     setViewportError(null);
 
     try {
-      const queryText = intent.queryText.trim();
-      const requestedLimit = computeViewportLimit(maxDistanceMeters, queryText);
-      const requestKey = JSON.stringify({
-        mode: "viewport",
-        bounds,
-        queryText,
-        maxDistanceMeters,
-        requestedLimit,
+      const response = await getLocationsInBounds(viewport.bounds, {
+        lat: viewport.center.lat,
+        lng: viewport.center.lng,
+        zoom_level: viewport.zoomLevel ?? undefined,
+        sort: sortingMode,
+        limit: MAX_VISIBLE_CARDS,
       });
-      if (lastViewportFetchKeyRef.current === requestKey) {
-        setViewportLoading(false);
-        return;
-      }
-      lastViewportFetchKeyRef.current = requestKey;
-
-      const response = await getLocationsInBounds(bounds, {
-        q: queryText ? queryText : undefined,
-        limit: requestedLimit,
-        sort: "name",
-      });
-
-      if (requestId !== latestViewportRequestIdRef.current) {
-        return;
-      }
 
       if (!response.success || !response.data) {
         setViewportError(response.error ?? "Failed to load viewport locations");
         return;
       }
 
-      setViewportLocations(response.data);
-      setRecommendationsPage(0);
+      setViewportLocations(dedupeLocations(response.data));
+      activeViewportRef.current = viewport;
+      setPendingViewport(null);
     } catch {
-      if (requestId !== latestViewportRequestIdRef.current) {
-        return;
-      }
       setViewportError("Failed to load viewport locations");
     } finally {
-      if (requestId === latestViewportRequestIdRef.current) {
-        setViewportLoading(false);
-      }
+      setViewportLoading(false);
     }
-  }, [computeViewportLimit, intent.queryText, maxDistanceMeters]);
+  }, [dedupeLocations, sortingMode]);
 
-  const maybeFetchLocationsForState = useCallback(
-    (state: MapState) => {
-      const bounds = boundsFromCameraState(state);
-      if (!bounds) {
-        return;
-      }
-      if (!didBoundsChange(lastViewportBoundsRef.current, bounds)) {
-        return;
-      }
-      lastViewportBoundsRef.current = bounds;
-      void fetchLocationsForBounds(bounds);
-    },
-    [fetchLocationsForBounds],
-  );
+  const onSearchThisArea = useCallback(async () => {
+    if (viewportLoading) {
+      return;
+    }
+    let viewport: ViewportState | null = null;
+    try {
+      const visibleBounds = await mapRef.current?.getVisibleBounds?.();
+      viewport = viewportFromVisibleBounds(visibleBounds);
+    } catch {
+      viewport = null;
+    }
+    if (!viewport) {
+      viewport = pendingViewport ?? lastSeenViewportRef.current ?? activeViewportRef.current;
+    }
+    if (!viewport) {
+      return;
+    }
+    await runViewportSearch(viewport);
+  }, [pendingViewport, runViewportSearch, viewportFromVisibleBounds, viewportLoading]);
 
   const onMapIdle = useCallback(
     (state: MapState) => {
-      maybeFetchLocationsForState(state);
+      const viewport = toViewportState(state);
+      if (!viewport) {
+        return;
+      }
+      lastSeenViewportRef.current = viewport;
+
+      if (mapIdleDebounceTimeoutRef.current) {
+        clearTimeout(mapIdleDebounceTimeoutRef.current);
+      }
+
+      mapIdleDebounceTimeoutRef.current = setTimeout(() => {
+        if (!hasLoadedInitialViewportRef.current) {
+          hasLoadedInitialViewportRef.current = true;
+          setPendingViewport(viewport);
+          void runViewportSearch(viewport);
+          return;
+        }
+
+        if (didViewportChange(activeViewportRef.current, viewport)) {
+          setPendingViewport(viewport);
+          return;
+        }
+
+        setPendingViewport(null);
+      }, MAP_IDLE_DEBOUNCE_MS);
     },
-    [maybeFetchLocationsForState],
+    [didViewportChange, runViewportSearch, toViewportState],
   );
 
   const onCameraChanged = useCallback(
     (state: MapState) => {
-      maybeFetchLocationsForState(state);
+      const viewport = toViewportState(state);
+      if (!viewport) {
+        return;
+      }
+      lastSeenViewportRef.current = viewport;
+      if (!hasLoadedInitialViewportRef.current) {
+        return;
+      }
+      if (didViewportChange(activeViewportRef.current, viewport) || didViewportChange(pendingViewport, viewport)) {
+        setPendingViewport(viewport);
+      }
     },
-    [maybeFetchLocationsForState],
+    [didViewportChange, pendingViewport, toViewportState],
   );
 
   const validLocations = useMemo(
@@ -293,76 +349,15 @@ export function MapboxPlaceholder({
     [viewportLocations],
   );
 
-  const hasTextQuery = intent.queryText.trim().length > 0;
-
-  const filteredLocations = useMemo(() => {
-    const base = applySearchIntent(validLocations, hasTextQuery ? { ...intent, openNow: false } : intent);
-    return base.filter((location) => {
-      // When a text search is active, prioritize query relevance and avoid chip filters hiding valid matches.
-      if (!hasTextQuery && cafeOnly && !isCafeOrCoffee(location)) {
-        return false;
-      }
-      if (!hasTextQuery && maxDistanceMeters !== null && userCoordinates) {
-        const distance = haversineMeters(
-          userCoordinates.lat,
-          userCoordinates.lng,
-          location.latitude,
-          location.longitude,
-        );
-        if (distance > maxDistanceMeters) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [cafeOnly, hasTextQuery, intent, maxDistanceMeters, userCoordinates, validLocations]);
-
-  const totalRecommendationPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredLocations.length / TOP_RANKED_COUNT)),
-    [filteredLocations.length],
-  );
-
   useEffect(() => {
-    setRecommendationsPage((previous) => Math.min(previous, Math.max(0, totalRecommendationPages - 1)));
-  }, [totalRecommendationPages]);
-
-  const pageStart = recommendationsPage * TOP_RANKED_COUNT;
-  const pageEnd = pageStart + TOP_RANKED_COUNT;
-
-  const mapLocations = useMemo(
-    () => filteredLocations.slice(0, MAX_VISIBLE_PINS),
-    [filteredLocations],
-  );
-
-  const topRankedLocations = useMemo(
-    () => filteredLocations.slice(pageStart, pageEnd),
-    [filteredLocations, pageEnd, pageStart],
-  );
-
-  const selectedLocation = useMemo(
-    () =>
-      validLocations.find((location) => location.id === selectedLocationId) ??
-      autocompleteSuggestions.find((location) => location.id === selectedLocationId) ??
-      locations.find((location) => location.id === selectedLocationId) ??
-      null,
-    [autocompleteSuggestions, locations, selectedLocationId, validLocations],
-  );
-
-  const topRankedWithDistance = useMemo(
-    () =>
-      topRankedLocations.map((location) => ({
-        location,
-        distanceMeters: userCoordinates
-          ? haversineMeters(
-              userCoordinates.lat,
-              userCoordinates.lng,
-              location.latitude,
-              location.longitude,
-            )
-          : null,
-      })),
-    [topRankedLocations, userCoordinates],
-  );
+    if (!selectedLocationId) {
+      return;
+    }
+    const exists = validLocations.some((location) => location.id === selectedLocationId);
+    if (!exists) {
+      setSelectedLocationId(null);
+    }
+  }, [selectedLocationId, validLocations]);
 
   const localAutocompleteFallback = useMemo(() => {
     const query = intent.queryText.trim().toLowerCase();
@@ -396,10 +391,96 @@ export function MapboxPlaceholder({
     () =>
       Boolean(intent.queryText.trim()) ||
       intent.openNow ||
-      maxDistanceMeters !== null ||
-      cafeOnly,
-    [cafeOnly, intent, maxDistanceMeters],
+      categoryFilter !== "all" ||
+      sortingMode !== "best_spots",
+    [categoryFilter, intent, sortingMode],
   );
+  const shouldHideFiltersWhileSearching = isSearchActive && intent.queryText.trim().length > 0;
+
+  const getDistanceFromActiveMapCenter = useCallback((location: Location): number | null => {
+    const activeCenter = activeViewportRef.current?.center
+      ?? pendingViewport?.center
+      ?? lastSeenViewportRef.current?.center
+      ?? (userCoordinates ? { lat: userCoordinates.lat, lng: userCoordinates.lng } : null)
+      ?? { lat: DEFAULT_CENTER[1], lng: DEFAULT_CENTER[0] };
+    if (!activeCenter) {
+      return null;
+    }
+    return haversineMeters(activeCenter.lat, activeCenter.lng, location.latitude, location.longitude);
+  }, [pendingViewport, userCoordinates]);
+
+  const sortedLocations = useMemo(() => {
+    const withScores = validLocations.map((location) => {
+      const availability = topAvailabilityById[location.id];
+      const occupancyPercent = availability?.occupancy_percent ?? null;
+      const availabilityScore = occupancyPercent === null ? 0.5 : Math.max(0, Math.min(1, (100 - occupancyPercent) / 100));
+      const confidence = availability?.confidence ?? 0.5;
+      const distanceMeters = getDistanceFromActiveMapCenter(location);
+      const distanceScore = distanceMeters === null
+        ? 0.5
+        : Math.max(0, Math.min(1, 1 - Math.min(distanceMeters, 5000) / 5000));
+      const bestScore = (availabilityScore * 0.65) + (distanceScore * 0.25) + (confidence * 0.10);
+      return {
+        location,
+        occupancyPercent,
+        availabilityScore,
+        confidence,
+        distanceMeters,
+        bestScore,
+      };
+    });
+
+    if (sortingMode === "highest_availability") {
+      return withScores
+        .sort((a, b) => {
+          if (b.availabilityScore !== a.availabilityScore) return b.availabilityScore - a.availabilityScore;
+          if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+          if (a.distanceMeters !== null && b.distanceMeters !== null && a.distanceMeters !== b.distanceMeters) {
+            return a.distanceMeters - b.distanceMeters;
+          }
+          return a.location.name.localeCompare(b.location.name);
+        })
+        .map((item) => item.location);
+    }
+
+    if (sortingMode === "closest") {
+      return withScores
+        .sort((a, b) => {
+          if (a.distanceMeters !== null && b.distanceMeters !== null && a.distanceMeters !== b.distanceMeters) {
+            return a.distanceMeters - b.distanceMeters;
+          }
+          if (a.distanceMeters === null && b.distanceMeters !== null) return 1;
+          if (a.distanceMeters !== null && b.distanceMeters === null) return -1;
+          return a.location.name.localeCompare(b.location.name);
+        })
+        .map((item) => item.location);
+    }
+
+    return withScores
+      .sort((a, b) => {
+        if (b.bestScore !== a.bestScore) return b.bestScore - a.bestScore;
+        return a.location.name.localeCompare(b.location.name);
+      })
+      .map((item) => item.location);
+  }, [getDistanceFromActiveMapCenter, sortingMode, topAvailabilityById, validLocations]);
+
+  const filteredLocations = useMemo(() => {
+    const effectiveIntent = {
+      ...intent,
+      categories: categoryFilter === "all" ? [] : [categoryFilter],
+    };
+    const base = applySearchIntent(sortedLocations, effectiveIntent);
+    return base.slice(0, MAX_VISIBLE_CARDS);
+  }, [categoryFilter, intent, sortedLocations]);
+
+  const mapLocations = useMemo(() => filteredLocations.slice(0, MAX_VISIBLE_PINS), [filteredLocations]);
+  const locationIndexById = useMemo(() => {
+    const next: Record<string, number> = {};
+    filteredLocations.forEach((location, index) => {
+      next[location.id] = index;
+    });
+    return next;
+  }, [filteredLocations]);
 
   const locationFeatureCollection = useMemo<GeoJSON.FeatureCollection>(
     () => ({
@@ -430,23 +511,19 @@ export function MapboxPlaceholder({
   }, []);
 
   useEffect(() => {
-    if (intent.queryText.trim().length > 0) {
-      setRecommendationsPage(0);
-    }
-  }, [intent.queryText]);
-
-  useEffect(() => {
-    setRecommendationsPage(0);
-  }, [cafeOnly, intent.openNow, maxDistanceMeters]);
-
-  useEffect(() => {
-    const bounds = lastViewportBoundsRef.current;
-    if (!bounds) {
+    if (validLocations.length > 0 || locations.length === 0) {
       return;
     }
-    lastViewportFetchKeyRef.current = null;
-    void fetchLocationsForBounds(bounds);
-  }, [fetchLocationsForBounds, intent.queryText, maxDistanceMeters]);
+    setViewportLocations(dedupeLocations(locations));
+  }, [dedupeLocations, locations, validLocations.length]);
+
+  useEffect(() => {
+    return () => {
+      if (mapIdleDebounceTimeoutRef.current) {
+        clearTimeout(mapIdleDebounceTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const clamped = clamp(sheetHeightRef.current, SHEET_MIN_HEIGHT, maxSheetHeight);
@@ -535,44 +612,7 @@ export function MapboxPlaceholder({
 
   useEffect(() => {
     let cancelled = false;
-    if (!selectedLocation) {
-      setSelectedLocationAvailability(null);
-      setAvailabilityError(null);
-      return;
-    }
-
-    setAvailabilityLoading(true);
-    setAvailabilityError(null);
-
-    void onLoadAvailability(selectedLocation.id)
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        setSelectedLocationAvailability(result.availability);
-        setAvailabilityError(result.error);
-      })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
-        setSelectedLocationAvailability(null);
-        setAvailabilityError("Failed to load AI availability");
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setAvailabilityLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [onLoadAvailability, selectedLocation]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const targetIds = topRankedLocations.map((location) => location.id);
+    const targetIds = validLocations.map((location) => location.id);
     if (targetIds.length === 0) {
       setTopAvailabilityById({});
       return;
@@ -595,7 +635,7 @@ export function MapboxPlaceholder({
     return () => {
       cancelled = true;
     };
-  }, [onLoadAvailability, topRankedLocations]);
+  }, [onLoadAvailability, validLocations]);
 
   useEffect(() => {
     if (!selectedLocationId) return;
@@ -671,7 +711,7 @@ export function MapboxPlaceholder({
     }
     const coordinates = feature.geometry?.coordinates;
 
-    if (!Array.isArray(coordinates) || coordinates.length < 2 || !cameraRef.current) {
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
       return;
     }
 
@@ -682,18 +722,15 @@ export function MapboxPlaceholder({
         if (previousId === locationId) {
           return null;
         }
-
-        cameraRef.current?.setCamera({
-          centerCoordinate: [coordinates[0], coordinates[1]],
-          zoomLevel: 13,
-          animationDuration: 350,
-          animationMode: "easeTo",
-        });
+        const cardIndex = locationIndexById[locationId];
+        if (Number.isFinite(cardIndex)) {
+          cardsListRef.current?.scrollToIndex({ animated: true, index: cardIndex });
+        }
 
         return locationId;
       });
     }
-  }, [onLogLocationInteraction]);
+  }, [locationIndexById, onLogLocationInteraction]);
 
   const onSearchFocus = useCallback(() => {
     if (blurSearchTimeoutRef.current) {
@@ -732,6 +769,13 @@ export function MapboxPlaceholder({
     });
   }, [onLogLocationInteraction]);
 
+  const combinedError = viewportError ?? error;
+  const mapIsLoading = loading || viewportLoading;
+  const mapDiagnostics = styleLoadError;
+  const displayedAutocompleteSuggestions = autocompleteSuggestions.length > 0
+    ? autocompleteSuggestions
+    : localAutocompleteFallback;
+
   const openExternalMap = useCallback(async (url: string) => {
     try {
       const supported = await Linking.canOpenURL(url);
@@ -745,13 +789,6 @@ export function MapboxPlaceholder({
       setExternalMapError("Unable to open maps link right now.");
     }
   }, []);
-
-  const combinedError = viewportError ?? error;
-  const mapIsLoading = loading || viewportLoading;
-  const mapDiagnostics = styleLoadError;
-  const displayedAutocompleteSuggestions = autocompleteSuggestions.length > 0
-    ? autocompleteSuggestions
-    : localAutocompleteFallback;
 
   if (mapboxInitError) {
     return (
@@ -778,6 +815,7 @@ export function MapboxPlaceholder({
       style={styles.container}
     >
       <Mapbox.MapView
+        ref={mapRef}
         key={styleURL}
         onCameraChanged={onCameraChanged}
         onDidFailLoadingMap={() => {
@@ -882,51 +920,76 @@ export function MapboxPlaceholder({
         </Pressable>
       ) : null}
 
-      <View style={styles.filterBar}>
-        <Pressable
-          onPress={() => setIntent((prev) => ({ ...prev, openNow: !prev.openNow }))}
-          style={[styles.filterChip, intent.openNow && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, intent.openNow && styles.filterChipTextActive]}>Open Now</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => {
-            setMaxDistanceMeters((previous) => {
-              const currentIndex = DISTANCE_OPTIONS_METERS.findIndex((value) => value === previous);
-              const nextIndex = currentIndex === DISTANCE_OPTIONS_METERS.length - 1 ? 0 : currentIndex + 1;
-              return DISTANCE_OPTIONS_METERS[nextIndex];
-            });
-          }}
-          style={[styles.filterChip, maxDistanceMeters !== null && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, maxDistanceMeters !== null && styles.filterChipTextActive]}>
-            {formatDistanceFilterLabel(maxDistanceMeters)}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => setCafeOnly((previous) => !previous)}
-          style={[styles.filterChip, cafeOnly && styles.filterChipActive]}
-        >
-          <Text style={[styles.filterChipText, cafeOnly && styles.filterChipTextActive]}>
-            Cafes/Coffee
-          </Text>
-        </Pressable>
-
-        {hasActiveFilters ? (
-          <Pressable
-            onPress={() => {
-              setIntent(DEFAULT_SEARCH_INTENT);
-              setMaxDistanceMeters(null);
-              setCafeOnly(false);
-            }}
-            style={[styles.filterChip, styles.filterChipReset]}
-          >
-            <Text style={styles.filterChipText}>Reset</Text>
+      {!mapIsLoading ? (
+        <View style={styles.searchAreaButtonWrap}>
+          <Pressable onPress={onSearchThisArea} style={styles.searchAreaButton}>
+            <Text style={styles.searchAreaButtonText}>Search this area</Text>
           </Pressable>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
+
+      {!shouldHideFiltersWhileSearching ? (
+        <>
+          <View style={styles.filterBar}>
+            <Pressable
+              onPress={() => setIntent((prev) => ({ ...prev, openNow: !prev.openNow }))}
+              style={[styles.filterChip, intent.openNow && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, intent.openNow && styles.filterChipTextActive]}>Open Now</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                setCategoryFilter((previous) => {
+                  if (previous === "all") return "cafe";
+                  if (previous === "cafe") return "library";
+                  if (previous === "library") return "bookstore";
+                  return "all";
+                });
+              }}
+              style={[styles.filterChip, categoryFilter !== "all" && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, categoryFilter !== "all" && styles.filterChipTextActive]}>
+                {categoryFilter === "all" ? "Category: All" : `Category: ${categoryFilter}`}
+              </Text>
+            </Pressable>
+
+            {hasActiveFilters ? (
+              <Pressable
+                onPress={() => {
+                  setIntent(DEFAULT_SEARCH_INTENT);
+                  setCategoryFilter("all");
+                  setSortingMode("best_spots");
+                }}
+                style={[styles.filterChip, styles.filterChipReset]}
+              >
+                <Text style={styles.filterChipText}>Reset</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View style={styles.filterBarSecondary}>
+            <Pressable
+              onPress={() => setSortingMode("best_spots")}
+              style={[styles.filterChip, sortingMode === "best_spots" && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, sortingMode === "best_spots" && styles.filterChipTextActive]}>Best Spots</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setSortingMode("highest_availability")}
+              style={[styles.filterChip, sortingMode === "highest_availability" && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, sortingMode === "highest_availability" && styles.filterChipTextActive]}>Highest Availability</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setSortingMode("closest")}
+              style={[styles.filterChip, sortingMode === "closest" && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, sortingMode === "closest" && styles.filterChipTextActive]}>Closest</Text>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
 
       {mapIsLoading ? (
         <View style={styles.loadingOverlay}>
@@ -966,8 +1029,8 @@ export function MapboxPlaceholder({
           <Pressable
             onPress={() => {
               setIntent(DEFAULT_SEARCH_INTENT);
-              setMaxDistanceMeters(null);
-              setCafeOnly(false);
+              setCategoryFilter("all");
+              setSortingMode("best_spots");
             }}
             style={styles.retryButton}
           >
@@ -976,7 +1039,7 @@ export function MapboxPlaceholder({
         </View>
       ) : null}
 
-      {!mapIsLoading && !combinedError && topRankedWithDistance.length > 0 ? (
+      {!mapIsLoading && !combinedError && filteredLocations.length > 0 ? (
         <Animated.View
           style={[
             styles.rankedSheet,
@@ -990,41 +1053,26 @@ export function MapboxPlaceholder({
             <View style={styles.rankedDragHandle} />
           </View>
           <View style={styles.rankedHeaderRow}>
-            <Text style={styles.rankedTitle}>Nearest study-friendly spots</Text>
-            <View style={styles.rankedHeaderActions}>
-              <Pressable
-                disabled={recommendationsPage <= 0}
-                onPress={() => setRecommendationsPage((previous) => Math.max(0, previous - 1))}
-                style={[styles.rankedNavChip, recommendationsPage <= 0 && styles.rankedNavChipDisabled]}
-              >
-                <Text style={styles.rankedNavText}>←</Text>
-              </Pressable>
-              <Text style={styles.rankedPageText}>{`${recommendationsPage + 1}/${totalRecommendationPages}`}</Text>
-              <Pressable
-                disabled={recommendationsPage >= totalRecommendationPages - 1}
-                onPress={() => setRecommendationsPage((previous) => Math.min(totalRecommendationPages - 1, previous + 1))}
-                style={[
-                  styles.rankedNavChip,
-                  recommendationsPage >= totalRecommendationPages - 1 && styles.rankedNavChipDisabled,
-                ]}
-              >
-                <Text style={styles.rankedNavText}>→</Text>
-              </Pressable>
-            </View>
+            <Text style={styles.rankedTitle}>{sortingMode === "best_spots" ? "Best Spots in View" : "Spots in This Area"}</Text>
+            <Text style={styles.rankedPageText}>{`${filteredLocations.length} results`}</Text>
           </View>
-          <ScrollView
+          <FlatList
+            ref={cardsListRef}
+            data={filteredLocations}
+            keyExtractor={(item) => item.id}
             nestedScrollEnabled
             showsVerticalScrollIndicator={false}
             style={styles.rankedScroll}
             contentContainerStyle={styles.rankedScrollContent}
-          >
-            {topRankedWithDistance.map(({ location, distanceMeters }) => {
+            onScrollToIndexFailed={() => {}}
+            renderItem={({ item: location, index }) => {
               const occupancy = topAvailabilityById[location.id]?.occupancy_percent ?? null;
               const availabilityPercent = occupancy === null ? null : Math.max(0, 100 - occupancy);
-              const isExpanded = selectedLocationId === location.id;
+              const isSelected = selectedLocationId === location.id;
+              const distanceMeters = getDistanceFromActiveMapCenter(location);
+              const isTopRecommendation = sortingMode === "best_spots" && index === 0;
               return (
                 <Pressable
-                  key={location.id}
                   onPress={() => {
                     setSelectedLocationId(location.id);
                     void onLogLocationInteraction(location.id, "click");
@@ -1035,7 +1083,11 @@ export function MapboxPlaceholder({
                       animationMode: "easeTo",
                     });
                   }}
-                  style={[styles.rankedCard, isExpanded && styles.rankedCardExpanded]}
+                  style={[
+                    styles.rankedCard,
+                    isSelected && styles.rankedCardExpanded,
+                    isTopRecommendation && styles.rankedTopCard,
+                  ]}
                 >
                 <View style={styles.rankedCardTopRow}>
                   <Text numberOfLines={1} style={styles.rankedName}>{location.name}</Text>
@@ -1046,7 +1098,7 @@ export function MapboxPlaceholder({
                 <Text numberOfLines={1} style={styles.rankedMeta}>
                   {location.quiet_level >= 4 ? "quiet" : "moderate noise"} • {location.has_outlets ? "outlets" : "no outlet data"} • {formatDistance(distanceMeters)}
                 </Text>
-                {isExpanded ? (
+                {isSelected ? (
                   <View style={styles.rankedExpandedDetails}>
                     <LocationDetailScreen
                       accessToken={accessToken}
@@ -1062,8 +1114,8 @@ export function MapboxPlaceholder({
                 ) : null}
                 </Pressable>
               );
-            })}
-          </ScrollView>
+            }}
+          />
         </Animated.View>
       ) : null}
 
@@ -1139,6 +1191,26 @@ const styles = StyleSheet.create({
   recenterButtonText: {
     fontSize: 18,
     color: "#334226",
+    fontWeight: "800",
+  },
+  searchAreaButtonWrap: {
+    position: "absolute",
+    top: 146,
+    alignSelf: "center",
+    zIndex: 40,
+    elevation: 4,
+  },
+  searchAreaButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#2f5634",
+    backgroundColor: "#2f5634",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  searchAreaButtonText: {
+    color: "#f8f6ef",
+    fontSize: 12,
     fontWeight: "800",
   },
   searchInputWrapper: {
@@ -1380,6 +1452,10 @@ const styles = StyleSheet.create({
   rankedCardExpanded: {
     borderColor: "#bccfaf",
     backgroundColor: "#f7fbf4",
+  },
+  rankedTopCard: {
+    borderColor: "#99ba86",
+    backgroundColor: "#eef7e8",
   },
   rankedExpandedDetails: {
     marginTop: 6,

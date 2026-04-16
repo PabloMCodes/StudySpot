@@ -1,4 +1,10 @@
-export type LocationSort = "name" | "newest" | "distance";
+export type LocationSort =
+  | "name"
+  | "newest"
+  | "distance"
+  | "best_spots"
+  | "highest_availability"
+  | "closest";
 
 export interface LocationBounds {
   minLat: number;
@@ -31,6 +37,7 @@ export interface GetLocationsParams {
   min_lng?: number;
   max_lng?: number;
   sort?: LocationSort;
+  zoom_level?: number;
   limit?: number;
   offset?: number;
 }

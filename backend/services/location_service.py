@@ -15,9 +15,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from models.location import Location
 from models.user_location import UserLocation
+from services import availability_service, ranking_service
+from services.distance_service import haversine_meters
 
 EARTH_RADIUS_METERS = 6_371_000
 MAX_RECOMMENDATIONS = 15
+MAX_MAP_RESULTS = 50
+DEFAULT_MAP_RESULTS = 30
 
 EXCLUDED_TYPE_TOKENS = {
     "gas_station",
@@ -69,7 +73,8 @@ EXCLUDED_NAME_TOKENS = {
     "dollar tree",
     "dollar general",
     "family dollar",
-    "7-eleven"
+    "7-Eleven",
+    "Walmart Supercenter"
 }
 INCLUDED_HINT_TOKENS = {"cafe", "coffee", "library", "bookstore", "study", "restaurant"}
 
@@ -286,3 +291,116 @@ def list_recommended_locations(
     filtered = [location for location in candidates if is_study_friendly_location(location)]
     page_end = offset + limit
     return filtered[offset:page_end]
+
+
+MapSortMode = Literal["best_spots", "highest_availability", "closest"]
+
+
+def _derive_zoom_limited_result_count(*, zoom_level: float | None, requested_limit: int) -> int:
+    """Return a zoom-aware result limit while always enforcing the hard max."""
+    safe_requested = max(1, min(requested_limit, MAX_MAP_RESULTS))
+    if zoom_level is None:
+        return min(safe_requested, DEFAULT_MAP_RESULTS)
+
+    if zoom_level < 10:
+        zoom_cap = 18
+    elif zoom_level < 12:
+        zoom_cap = 28
+    elif zoom_level < 14:
+        zoom_cap = 38
+    else:
+        zoom_cap = MAX_MAP_RESULTS
+
+    return max(1, min(safe_requested, zoom_cap, MAX_MAP_RESULTS))
+
+
+def list_map_locations(
+    db: Session,
+    *,
+    min_lat: float,
+    max_lat: float,
+    min_lng: float,
+    max_lng: float,
+    center_lat: float,
+    center_lng: float,
+    sort_mode: MapSortMode = "best_spots",
+    zoom_level: float | None = None,
+    query_text: str | None = None,
+    limit: int = DEFAULT_MAP_RESULTS,
+    offset: int = 0,
+) -> list[Location]:
+    """List map-bounded locations using zoom-aware limits and map-first sort modes."""
+    if offset < 0:
+        offset = 0
+
+    effective_limit = _derive_zoom_limited_result_count(zoom_level=zoom_level, requested_limit=limit)
+
+    candidate_multiplier = 1 if sort_mode == "closest" else 3
+    candidate_limit = min(MAX_MAP_RESULTS, max(effective_limit, effective_limit * candidate_multiplier))
+
+    base_candidates = list_locations_filtered(
+        db,
+        lat=center_lat,
+        lng=center_lng,
+        min_lat=min_lat,
+        max_lat=max_lat,
+        min_lng=min_lng,
+        max_lng=max_lng,
+        query_text=query_text,
+        sort="distance",
+        limit=candidate_limit,
+        offset=0,
+    )
+
+    if sort_mode == "closest":
+        page_end = offset + effective_limit
+        return base_candidates[offset:page_end]
+
+    availability_by_id = availability_service.get_bulk_location_availability_snapshots(
+        db,
+        location_ids=[location.id for location in base_candidates],
+    )
+
+    def availability_score(location: Location) -> float:
+        availability = availability_by_id.get(location.id)
+        if availability is None:
+            return 0.5
+        occupancy = float(availability.get("occupancy_percent", 50))
+        return max(0.0, min(1.0, (100.0 - occupancy) / 100.0))
+
+    def confidence_score(location: Location) -> float:
+        availability = availability_by_id.get(location.id)
+        if availability is None:
+            return 0.5
+        confidence = float(availability.get("confidence", 0.5))
+        return max(0.0, min(1.0, confidence))
+
+    def distance_score(location: Location) -> float:
+        distance_meters = haversine_meters(center_lat, center_lng, location.latitude, location.longitude)
+        return ranking_service.normalize_distance_score(distance_meters)
+
+    if sort_mode == "highest_availability":
+        ranked = sorted(
+            base_candidates,
+            key=lambda location: (
+                -availability_score(location),
+                -confidence_score(location),
+                -distance_score(location),
+                location.name.lower(),
+            ),
+        )
+    else:
+        ranked = sorted(
+            base_candidates,
+            key=lambda location: (
+                -(
+                    (availability_score(location) * 0.65)
+                    + (distance_score(location) * 0.25)
+                    + (confidence_score(location) * 0.10)
+                ),
+                location.name.lower(),
+            ),
+        )
+
+    page_end = offset + effective_limit
+    return ranked[offset:page_end]

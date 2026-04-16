@@ -62,13 +62,34 @@ def list_locations(
     min_lng: float | None = Query(default=None, ge=-180, le=180),
     max_lng: float | None = Query(default=None, ge=-180, le=180),
     q: str | None = Query(default=None, min_length=1, max_length=120),
-    sort: Literal["name", "newest", "distance"] = Query(default="name"),
+    sort: Literal["name", "newest", "distance", "best_spots", "highest_availability", "closest"] = Query(default="name"),
+    zoom_level: float | None = Query(default=None, ge=0, le=22),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
     try:
-        if lat is not None and lng is not None and sort == "distance":
+        if sort in {"best_spots", "highest_availability", "closest"}:
+            has_all_bbox_values = all(value is not None for value in (min_lat, max_lat, min_lng, max_lng))
+            if not has_all_bbox_values:
+                raise ValueError("min_lat, max_lat, min_lng, and max_lng are required for map sorting")
+            center_lat = lat if lat is not None else ((min_lat + max_lat) / 2)
+            center_lng = lng if lng is not None else ((min_lng + max_lng) / 2)
+            locations = location_service.list_map_locations(
+                db,
+                min_lat=min_lat,
+                max_lat=max_lat,
+                min_lng=min_lng,
+                max_lng=max_lng,
+                center_lat=center_lat,
+                center_lng=center_lng,
+                sort_mode=sort,
+                zoom_level=zoom_level,
+                query_text=q,
+                limit=limit,
+                offset=offset,
+            )
+        elif lat is not None and lng is not None and sort == "distance":
             locations = location_service.list_recommended_locations(
                 db,
                 lat=lat,

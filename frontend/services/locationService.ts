@@ -29,7 +29,7 @@ export function getLocationById(locationId: string): Promise<ApiResponse<Locatio
 
 export function getLocationsInBounds(
   bounds: LocationBounds,
-  options?: Pick<GetLocationsParams, "sort" | "limit" | "offset" | "lat" | "lng" | "radius_m" | "q">,
+  options?: Pick<GetLocationsParams, "sort" | "limit" | "offset" | "lat" | "lng" | "radius_m" | "q" | "zoom_level">,
 ): Promise<ApiResponse<Location[]>> {
   return getLocations({
     min_lat: bounds.minLat,
@@ -41,6 +41,7 @@ export function getLocationsInBounds(
     lng: options?.lng,
     radius_m: options?.radius_m,
     sort: options?.sort ?? "name",
+    zoom_level: options?.zoom_level,
     limit: options?.limit ?? 100,
     offset: options?.offset ?? 0,
   });

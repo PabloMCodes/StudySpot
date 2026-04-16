@@ -79,6 +79,30 @@ function resolveMediaUrl(value: string | null | undefined): string | null {
   return `${API_BASE_URL}/${value}`;
 }
 
+function TrophyIcon({ active = false }: { active?: boolean }) {
+  const color = active ? "#ad7237" : "#7d7a70";
+  return (
+    <View style={styles.trophyIconWrap}>
+      <View style={[styles.trophyCup, { borderColor: color }]}>
+        <View style={[styles.trophyHandleLeft, { borderColor: color }]} />
+        <View style={[styles.trophyHandleRight, { borderColor: color }]} />
+      </View>
+      <View style={[styles.trophyStem, { backgroundColor: color }]} />
+      <View style={[styles.trophyBase, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
+function ProfileIcon({ active = false }: { active?: boolean }) {
+  const color = active ? "#ad7237" : "#7d7a70";
+  return (
+    <View style={styles.profileIconWrap}>
+      <View style={[styles.profileIconHead, { borderColor: color }]} />
+      <View style={[styles.profileIconBody, { borderColor: color }]} />
+    </View>
+  );
+}
+
 export function HomeScreen() {
   const { accessToken, setAccessToken } = useAuth();
   const [locations, setLocations] = useState<Location[]>([]);
@@ -624,7 +648,10 @@ export function HomeScreen() {
       return (
         <ScrollView contentContainerStyle={styles.profileSurface} showsVerticalScrollIndicator={false}>
           <View style={styles.profileHero}>
-            <Text style={styles.profileEyebrow}>{isViewingSelf ? "My Profile" : "User Profile"}</Text>
+            <View style={styles.profileTitleRow}>
+              <ProfileIcon active />
+              <Text style={styles.profileEyebrow}>{isViewingSelf ? "My Profile" : "User Profile"}</Text>
+            </View>
             <Text style={styles.profileName}>{profileStats?.name ?? viewedUser?.name ?? "Unnamed user"}</Text>
             <View style={styles.profileEmphasisRow}>
               <View style={styles.profileEmphasisCard}>
@@ -919,7 +946,7 @@ export function HomeScreen() {
               pressed && styles.tabItemPressed,
             ]}
           >
-            <Text style={[styles.tabIcon, activeTab === "leaderboard" && styles.tabIconActive]}>≣</Text>
+            <TrophyIcon active={activeTab === "leaderboard"} />
             <Text style={[styles.tabLabel, activeTab === "leaderboard" && styles.tabLabelActive]}>Leaders</Text>
           </Pressable>
           <Pressable
@@ -931,7 +958,7 @@ export function HomeScreen() {
               pressed && styles.tabItemPressed,
             ]}
           >
-            <Text style={[styles.tabIcon, activeTab === "profile" && styles.tabIconActive]}>◌</Text>
+            <ProfileIcon active={activeTab === "profile"} />
             <Text style={[styles.tabLabel, activeTab === "profile" && styles.tabLabelActive]}>Profile</Text>
           </Pressable>
         </View>
@@ -1078,6 +1105,11 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 1,
     fontWeight: "800",
+  },
+  profileTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   profileName: {
     color: "#2f4232",
@@ -1300,6 +1332,80 @@ const styles = StyleSheet.create({
   },
   tabIconActive: {
     color: "#ad7237",
+  },
+  tabIconGlyph: {
+    color: "#7d7a70",
+  },
+  tabIconGlyphActive: {
+    color: "#ad7237",
+  },
+  trophyIconWrap: {
+    width: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trophyCup: {
+    width: 11,
+    height: 8,
+    borderWidth: 1.7,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    position: "relative",
+  },
+  trophyHandleLeft: {
+    position: "absolute",
+    left: -5,
+    top: 1,
+    width: 4,
+    height: 5,
+    borderWidth: 1.3,
+    borderRightWidth: 0,
+    borderTopLeftRadius: 3,
+    borderBottomLeftRadius: 3,
+  },
+  trophyHandleRight: {
+    position: "absolute",
+    right: -5,
+    top: 1,
+    width: 4,
+    height: 5,
+    borderWidth: 1.3,
+    borderLeftWidth: 0,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+  },
+  trophyStem: {
+    width: 3,
+    height: 5,
+    borderRadius: 2,
+    marginTop: 1,
+  },
+  trophyBase: {
+    width: 12,
+    height: 3,
+    borderRadius: 2,
+    marginTop: 1,
+  },
+  profileIconWrap: {
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileIconHead: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    borderWidth: 1.6,
+  },
+  profileIconBody: {
+    marginTop: 2,
+    width: 13,
+    height: 7,
+    borderWidth: 1.6,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+    borderBottomWidth: 0,
   },
   tabLabel: {
     fontSize: 12,
