@@ -4,11 +4,14 @@ Photo service for upload persistence and location photo aggregation.
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import UploadFile
+import httpx
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -19,6 +22,10 @@ from models.session_photo import PhotoFeedback, SessionPhoto
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_RECENT_PHOTOS = 5
 UPLOADS_DIR = Path(__file__).resolve().parents[1] / "uploads" / "session_photos"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "session-photos")
 
 
 def _sanitize_extension(filename: str | None) -> str:
@@ -26,10 +33,54 @@ def _sanitize_extension(filename: str | None) -> str:
     return suffix if suffix in ALLOWED_EXTENSIONS else ".jpg"
 
 
+def _supabase_headers(content_type: str) -> dict[str, str]:
+    auth_key = SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY
+    return {
+        "apikey": auth_key,
+        "Authorization": f"Bearer {auth_key}",
+        "Content-Type": content_type,
+        "x-upsert": "false",
+    }
+
+
+def _build_supabase_public_url(object_key: str) -> str:
+    encoded_object_key = quote(object_key)
+    return f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{encoded_object_key}"
+
+
+def _upload_to_supabase_storage(file: UploadFile, safe_name: str) -> str:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise ValueError("Supabase storage credentials are not configured")
+
+    object_key = f"session_photos/{safe_name}"
+    upload_url = (
+        f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_STORAGE_BUCKET}/{quote(object_key)}"
+    )
+    body = file.file.read()
+    if not body:
+        raise ValueError("Empty upload file")
+
+    content_type = file.content_type or "image/jpeg"
+    response = httpx.post(
+        upload_url,
+        headers=_supabase_headers(content_type),
+        content=body,
+        timeout=30.0,
+    )
+    if response.status_code >= 400:
+        raise ValueError("Failed to upload image to Supabase storage")
+
+    return _build_supabase_public_url(object_key)
+
+
 def save_upload_file(file: UploadFile) -> str:
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     ext = _sanitize_extension(file.filename)
     safe_name = f"{uuid.uuid4().hex}{ext}"
+
+    if SUPABASE_URL and SUPABASE_ANON_KEY:
+        return _upload_to_supabase_storage(file, safe_name)
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     target = UPLOADS_DIR / safe_name
     with target.open("wb") as out:
         while True:

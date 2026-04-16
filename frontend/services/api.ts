@@ -9,7 +9,10 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
   "http://localhost:8000";
 export const PRIVACY_POLICY_URL =
-  process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim() || "https://example.com/privacy";
+  process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim() ||
+  "https://heliotrope-fedora-710.notion.site/StudySpot-Privacy-Policy-1ea4ab8980428357867d813699b9188b";
+export const SUPPORT_EMAIL =
+  process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim() || "support@studyspot.app";
 const REQUEST_TIMEOUT_MS = 20_000;
 
 export async function apiRequest<T>(

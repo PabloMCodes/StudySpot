@@ -1,7 +1,6 @@
 export interface SessionPhoto {
   id: string;
   session_id: string;
-  user_id: string;
   location_id: string | null;
   image_url: string;
   helpful_count: number;

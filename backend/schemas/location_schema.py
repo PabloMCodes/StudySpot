@@ -69,4 +69,4 @@ class SavedLocationMutationResponse(BaseModel):
 
 
 class LocationInteractionCreate(BaseModel):
-    interaction_type: Literal["view", "click"]
+    interaction_type: Literal["view", "click", "report"]

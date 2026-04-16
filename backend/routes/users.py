@@ -97,7 +97,7 @@ def get_user_profile_stats(
 ):
     try:
         data = session_service.get_user_profile_stats(db, user_id=user_id)
-        return {"success": True, "data": data.model_dump(mode="json"), "error": None}
+        return {"success": True, "data": data.model_dump(mode="json", exclude={"email"}), "error": None}
     except session_service.ServiceError as exc:
         return JSONResponse(
             status_code=exc.status_code,

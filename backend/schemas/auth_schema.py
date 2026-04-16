@@ -12,6 +12,12 @@ class GoogleAuthRequest(BaseModel):
     id_token: str
 
 
+class SupabaseAuthRequest(BaseModel):
+    """Payload sent from frontend after Supabase email/password auth."""
+
+    access_token: str
+
+
 class TokenResponse(BaseModel):
     """JWT payload shape returned inside the API `data` field."""
 

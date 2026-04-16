@@ -26,9 +26,10 @@ def upload_photo(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        relative_url = photo_service.save_upload_file(file)
-        absolute_url = str(request.base_url).rstrip("/") + relative_url
-        payload = PhotoUploadResponse(image_url=absolute_url)
+        image_url = photo_service.save_upload_file(file)
+        if not image_url.startswith("http://") and not image_url.startswith("https://"):
+            image_url = str(request.base_url).rstrip("/") + image_url
+        payload = PhotoUploadResponse(image_url=image_url)
         return {"success": True, "data": payload.model_dump(mode="json"), "error": None}
     except Exception:
         return JSONResponse(
@@ -52,7 +53,6 @@ def like_photo(
             "photo": SessionPhotoResponse(
                 id=photo.id,
                 session_id=photo.session_id,
-                user_id=photo.user_id,
                 location_id=photo.location_id,
                 image_url=photo.image_url,
                 helpful_count=photo.helpful_count,

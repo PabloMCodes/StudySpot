@@ -3,8 +3,6 @@ Check-in route file.
 This just means endpoints for posting crowd updates go here.
 """
 
-import traceback
-
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -58,7 +56,6 @@ def create_checkin(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to create check-in"},
@@ -80,7 +77,6 @@ def get_checkin_prompt(
         )
         return {"success": True, "data": prompt.model_dump(mode="json"), "error": None}
     except Exception:
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to evaluate nearby prompt"},
@@ -100,7 +96,6 @@ def get_my_checkins(
         return {"success": True, "data": data.model_dump(mode="json"), "error": None}
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch check-ins"},
@@ -143,7 +138,6 @@ def checkout_checkin(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to check out"},

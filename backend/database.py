@@ -9,6 +9,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 
 def _load_env_defaults() -> None:
@@ -31,12 +32,53 @@ def _load_env_defaults() -> None:
 
 _load_env_defaults()
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg://postgres:postgres@localhost:5432/studyspot",
+def _normalize_database_url(raw_url: str) -> str:
+    # Force SQLAlchemy to use psycopg v3 when DATABASE_URL is provided as postgresql:// or postgres://.
+    if raw_url.startswith("postgresql+psycopg://"):
+        return raw_url
+    if raw_url.startswith("postgresql://"):
+        return raw_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    if raw_url.startswith("postgres://"):
+        return raw_url.replace("postgres://", "postgresql+psycopg://", 1)
+    return raw_url
+
+
+DATABASE_URL = _normalize_database_url(
+    os.getenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://postgres:postgres@localhost:5432/studyspot",
+    )
 )
 
-engine = create_engine(DATABASE_URL, future=True, pool_pre_ping=True)
+IS_SERVERLESS = os.getenv("VERCEL") == "1"
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "1"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "0"))
+DB_POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "10"))
+CONNECT_ARGS: dict = {}
+
+if "pooler.supabase.com" in DATABASE_URL:
+    # Supabase transaction pooler is not compatible with server-side prepared statements.
+    CONNECT_ARGS["prepare_threshold"] = None
+
+if IS_SERVERLESS:
+    # On serverless runtimes, avoid long-lived connection pools per function instance.
+    engine = create_engine(
+        DATABASE_URL,
+        future=True,
+        pool_pre_ping=True,
+        poolclass=NullPool,
+        connect_args=CONNECT_ARGS,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        future=True,
+        pool_pre_ping=True,
+        pool_size=DB_POOL_SIZE,
+        max_overflow=DB_MAX_OVERFLOW,
+        pool_timeout=DB_POOL_TIMEOUT,
+        connect_args=CONNECT_ARGS,
+    )
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,

@@ -18,6 +18,15 @@ import { useAuth } from "../context/AuthContext";
 import { login, signInWithEmailPassword, signUpWithEmailPassword } from "../services/authService";
 
 WebBrowser.maybeCompleteAuthSession();
+const ENABLE_GOOGLE_LOGIN = process.env.EXPO_PUBLIC_ENABLE_GOOGLE_LOGIN === "true";
+const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID?.trim();
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim();
+const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim();
+const GOOGLE_AUTH_CONFIGURED = Boolean(
+  (GOOGLE_IOS_CLIENT_ID || GOOGLE_CLIENT_ID) &&
+  (GOOGLE_ANDROID_CLIENT_ID || GOOGLE_CLIENT_ID),
+);
+const GOOGLE_AUTH_ENABLED = ENABLE_GOOGLE_LOGIN && GOOGLE_AUTH_CONFIGURED;
 
 export function LoginScreen() {
   const { setAccessToken } = useAuth();
@@ -30,13 +39,20 @@ export function LoginScreen() {
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    scopes: ["profile", "email"],
-    selectAccount: true,
-  });
+  const [request, response, promptAsync] = Google.useAuthRequest(
+    GOOGLE_AUTH_ENABLED
+      ? {
+          clientId: GOOGLE_CLIENT_ID,
+          iosClientId: GOOGLE_IOS_CLIENT_ID,
+          androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+          scopes: ["profile", "email"],
+          selectAccount: true,
+        }
+      : {
+          // `Google.useAuthRequest` requires a truthy client id even when UI is disabled.
+          clientId: "disabled-google-auth",
+        },
+  );
 
   const titleText = useMemo(() => (isSignupMode ? "Create your account" : "Welcome"), [isSignupMode]);
   const subtitleText = useMemo(
@@ -85,6 +101,7 @@ export function LoginScreen() {
   };
 
   useEffect(() => {
+    if (!GOOGLE_AUTH_ENABLED) return;
     if (response?.type !== "success") return;
 
     const idToken =
@@ -117,7 +134,7 @@ export function LoginScreen() {
   }, [response, setAccessToken]);
 
   const handleGooglePress = () => {
-    if (!request || googleLoading) return;
+    if (!GOOGLE_AUTH_ENABLED || !request || googleLoading) return;
     setGoogleError(null);
     setAuthMessage(null);
     setGoogleLoading(true);
@@ -197,26 +214,29 @@ export function LoginScreen() {
               )}
             </Pressable>
 
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
+            {GOOGLE_AUTH_ENABLED ? (
+              <>
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-            <Pressable
-              accessibilityRole="button"
-              disabled={!request || googleLoading}
-              onPress={handleGooglePress}
-              style={[styles.secondaryButton, (!request || googleLoading) && styles.secondaryButtonDisabled]}
-            >
-              {googleLoading ? (
-                <ActivityIndicator color="#588764" />
-              ) : (
-                <Text style={styles.secondaryButtonText}>Log In with Google</Text>
-              )}
-            </Pressable>
-
-            {googleError ? <Text style={styles.errorText}>{googleError}</Text> : null}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={!request || googleLoading}
+                  onPress={handleGooglePress}
+                  style={[styles.secondaryButton, (!request || googleLoading) && styles.secondaryButtonDisabled]}
+                >
+                  {googleLoading ? (
+                    <ActivityIndicator color="#588764" />
+                  ) : (
+                    <Text style={styles.secondaryButtonText}>Log In with Google</Text>
+                  )}
+                </Pressable>
+                {googleError ? <Text style={styles.errorText}>{googleError}</Text> : null}
+              </>
+            ) : null}
             {authMessage ? <Text style={styles.errorText}>{authMessage}</Text> : null}
 
             <View style={styles.linkRow}>

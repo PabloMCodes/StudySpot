@@ -15,7 +15,6 @@ class PhotoUploadResponse(BaseModel):
 class SessionPhotoResponse(BaseModel):
     id: UUID
     session_id: UUID
-    user_id: UUID
     location_id: UUID | None
     image_url: str
     helpful_count: int

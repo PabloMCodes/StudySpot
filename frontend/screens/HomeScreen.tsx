@@ -18,7 +18,7 @@ import {
   sendCheckinPromptNotification,
 } from "../services/notificationService";
 import { getFriendsLeaderboard } from "../services/sessionService";
-import { PRIVACY_POLICY_URL } from "../services/api";
+import { PRIVACY_POLICY_URL, SUPPORT_EMAIL } from "../services/api";
 import { deleteMyAccount } from "../services/authService";
 import {
   acceptFriendRequest,
@@ -317,7 +317,7 @@ export function HomeScreen() {
     setActiveTab("checkins");
   }, []);
 
-  const handleLogLocationInteraction = useCallback(async (locationId: string, interactionType: "view" | "click") => {
+  const handleLogLocationInteraction = useCallback(async (locationId: string, interactionType: "view" | "click" | "report") => {
     const key = `${locationId}:${interactionType}`;
     const now = Date.now();
     const lastLoggedAt = lastInteractionRef.current[key] ?? 0;
@@ -596,6 +596,20 @@ export function HomeScreen() {
       await Linking.openURL(PRIVACY_POLICY_URL);
     } catch {
       setProfileMessage("Unable to open the privacy policy right now.");
+    }
+  }, []);
+
+  const handleContactSupport = useCallback(async () => {
+    try {
+      const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("StudySpot Support")}`;
+      const isSupported = await Linking.canOpenURL(mailtoUrl);
+      if (!isSupported) {
+        setProfileMessage("Unable to open email support right now.");
+        return;
+      }
+      await Linking.openURL(mailtoUrl);
+    } catch {
+      setProfileMessage("Unable to open email support right now.");
     }
   }, []);
 
@@ -887,6 +901,9 @@ export function HomeScreen() {
             <Text style={styles.profileSectionTitle}>Legal</Text>
             <Pressable onPress={() => void handleOpenPrivacyPolicy()} style={styles.legalLinkButton}>
               <Text style={styles.legalLinkText}>Privacy Policy</Text>
+            </Pressable>
+            <Pressable onPress={() => void handleContactSupport()} style={styles.legalLinkButton}>
+              <Text style={styles.legalLinkText}>Contact Support</Text>
             </Pressable>
           </View>
 

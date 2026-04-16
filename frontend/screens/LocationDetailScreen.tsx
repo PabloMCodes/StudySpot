@@ -15,6 +15,7 @@ interface LocationDetailScreenProps {
   accessToken: string | null;
   onOpenGoogleMaps: () => void;
   onOpenAppleMaps: () => void;
+  onReportContent: () => void;
   onCheckInPress: () => void;
 }
 
@@ -26,6 +27,7 @@ export function LocationDetailScreen({
   accessToken,
   onOpenGoogleMaps,
   onOpenAppleMaps,
+  onReportContent,
   onCheckInPress,
 }: LocationDetailScreenProps) {
   const [photos, setPhotos] = useState<LocationPhotos | null>(null);
@@ -98,6 +100,9 @@ export function LocationDetailScreen({
         <Pressable onPress={onOpenAppleMaps} style={styles.mapLinkChip}>
           <Text style={styles.mapLinkText}>Apple Maps</Text>
         </Pressable>
+        <Pressable onPress={onReportContent} style={styles.reportLinkChip}>
+          <Text style={styles.reportLinkText}>Report Content</Text>
+        </Pressable>
       </View>
 
       <Pressable
@@ -153,6 +158,17 @@ const styles = StyleSheet.create({
   },
   mapLinkText: {
     color: "#456046",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  reportLinkChip: {
+    borderRadius: 999,
+    backgroundColor: "#f8ebe6",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  reportLinkText: {
+    color: "#9e5244",
     fontSize: 12,
     fontWeight: "700",
   },

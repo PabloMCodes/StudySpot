@@ -3,7 +3,6 @@ Study session route file.
 This just means endpoints for creating/joining sessions go here.
 """
 
-import traceback
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -41,7 +40,6 @@ def get_my_sessions(
         return {"success": True, "data": payload.model_dump(mode="json"), "error": None}
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch sessions"},
@@ -65,7 +63,6 @@ def get_friends_leaderboard(
         }
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch friends leaderboard"},
@@ -89,7 +86,6 @@ def get_global_leaderboard(
         }
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to fetch global leaderboard"},
@@ -130,7 +126,6 @@ def start_session(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to start session"},
@@ -162,7 +157,6 @@ def end_session(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to end session"},
@@ -196,7 +190,6 @@ def complete_session(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to complete session"},
@@ -230,7 +223,6 @@ def update_personal_session_history(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to update session"},
@@ -262,7 +254,6 @@ def delete_personal_session_history(
         )
     except Exception:
         db.rollback()
-        traceback.print_exc()
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to delete session"},

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from models.location import Location
 from models.location_interaction import LocationInteraction
 
-InteractionType = Literal["view", "click"]
+InteractionType = Literal["view", "click", "report"]
 
 
 def log_location_interaction(

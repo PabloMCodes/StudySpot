@@ -53,8 +53,8 @@ export function getLocationAvailability(locationId: string): Promise<ApiResponse
 
 export function logLocationInteraction(
   locationId: string,
-  interactionType: "view" | "click",
-): Promise<ApiResponse<{ id: string; location_id: string; interaction_type: "view" | "click"; created_at: string }>> {
+  interactionType: "view" | "click" | "report",
+): Promise<ApiResponse<{ id: string; location_id: string; interaction_type: "view" | "click" | "report"; created_at: string }>> {
   return apiRequest(`/locations/${encodeURIComponent(locationId)}/interactions`, {
     method: "POST",
     body: JSON.stringify({ interaction_type: interactionType }),

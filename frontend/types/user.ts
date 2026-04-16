@@ -38,7 +38,7 @@ export interface RecentStudyPhoto {
 export interface UserProfileStats {
   id: string;
   name: string | null;
-  email: string;
+  email?: string;
   profile_picture: string | null;
   total_study_time: number;
   study_time_last_7_days: number;

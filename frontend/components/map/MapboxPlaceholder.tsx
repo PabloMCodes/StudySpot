@@ -18,6 +18,7 @@ import {
   applySearchIntent,
   DEFAULT_SEARCH_INTENT,
 } from "../../services/locationFilterService";
+import { SUPPORT_EMAIL } from "../../services/api";
 import { LocationDetailScreen } from "../../screens/LocationDetailScreen";
 import { getLocations, getLocationsInBounds } from "../../services/locationService";
 import {
@@ -46,12 +47,15 @@ interface MapboxPlaceholderProps {
     error: string | null;
   }>;
   onOpenCheckinsForLocation: (locationId: string) => void;
-  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click") => Promise<void>;
+  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click" | "report") => Promise<void>;
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
 const MAX_VISIBLE_PINS = 50;
 const MAX_VISIBLE_CARDS = 50;
+const MAX_AVAILABILITY_LOOKUPS = 12;
+const AVAILABILITY_BATCH_SIZE = 4;
+const AVAILABILITY_REFRESH_MS = 45_000;
 const MAP_IDLE_DEBOUNCE_MS = 220;
 const ZOOM_CHANGE_THRESHOLD = 0.2;
 const SHEET_BOTTOM_OFFSET = 12;
@@ -143,6 +147,7 @@ export function MapboxPlaceholder({
   const sheetHeightRef = useRef(initialSheetHeight);
   const sheetStartHeightRef = useRef(initialSheetHeight);
   const [topAvailabilityById, setTopAvailabilityById] = useState<Record<string, CheckinAvailability>>({});
+  const availabilityCacheRef = useRef<Record<string, { data: CheckinAvailability; fetchedAt: number }>>({});
   const blurSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mapboxAccessToken = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ?? "";
@@ -613,25 +618,51 @@ export function MapboxPlaceholder({
 
   useEffect(() => {
     let cancelled = false;
-    const targetIds = validLocations.map((location) => location.id);
+    const targetIds = validLocations.slice(0, MAX_AVAILABILITY_LOOKUPS).map((location) => location.id);
     if (targetIds.length === 0) {
       setTopAvailabilityById({});
       return;
     }
 
-    void Promise.all(
-      targetIds.map(async (locationId) => {
-        const result = await onLoadAvailability(locationId);
-        return [locationId, result.availability] as const;
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
+    const loadAvailability = async () => {
+      const now = Date.now();
       const next: Record<string, CheckinAvailability> = {};
-      entries.forEach(([locationId, availability]) => {
-        if (availability) next[locationId] = availability;
+      const idsToFetch: string[] = [];
+
+      targetIds.forEach((locationId) => {
+        const cached = availabilityCacheRef.current[locationId];
+        if (cached && now - cached.fetchedAt < AVAILABILITY_REFRESH_MS) {
+          next[locationId] = cached.data;
+          return;
+        }
+        idsToFetch.push(locationId);
       });
+
+      for (let index = 0; index < idsToFetch.length; index += AVAILABILITY_BATCH_SIZE) {
+        if (cancelled) return;
+        const chunk = idsToFetch.slice(index, index + AVAILABILITY_BATCH_SIZE);
+        const entries = await Promise.all(
+          chunk.map(async (locationId) => {
+            const result = await onLoadAvailability(locationId);
+            return [locationId, result.availability] as const;
+          }),
+        );
+        if (cancelled) return;
+        entries.forEach(([locationId, availability]) => {
+          if (!availability) return;
+          next[locationId] = availability;
+          availabilityCacheRef.current[locationId] = {
+            data: availability,
+            fetchedAt: Date.now(),
+          };
+        });
+      }
+
+      if (cancelled) return;
       setTopAvailabilityById(next);
-    });
+    };
+
+    void loadAvailability();
 
     return () => {
       cancelled = true;
@@ -796,6 +827,24 @@ export function MapboxPlaceholder({
       setExternalMapError("Unable to open maps link right now.");
     }
   }, []);
+
+  const reportLocationContent = useCallback(async (location: Location) => {
+    try {
+      await onLogLocationInteraction(location.id, "report");
+      const subject = encodeURIComponent(`StudySpot content report: ${location.name}`);
+      const body = encodeURIComponent(
+        `Please review content at this location.\n\nLocation ID: ${location.id}\nLocation name: ${location.name}`,
+      );
+      const supportUrl = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+      const supported = await Linking.canOpenURL(supportUrl);
+      if (supported) {
+        await Linking.openURL(supportUrl);
+      }
+      setExternalMapError("Thanks. Your report was recorded and sent to support.");
+    } catch {
+      setExternalMapError("Unable to submit report right now. Please try again.");
+    }
+  }, [onLogLocationInteraction]);
 
   if (mapboxInitError) {
     return (
@@ -1112,6 +1161,7 @@ export function MapboxPlaceholder({
                       onCheckInPress={() => onOpenCheckinsForLocation(location.id)}
                       onOpenAppleMaps={() => openExternalMap(getAppleMapsUrl(location))}
                       onOpenGoogleMaps={() => openExternalMap(getGoogleMapsUrl(location))}
+                      onReportContent={() => void reportLocationContent(location)}
                     />
                   </View>
                 ) : null}

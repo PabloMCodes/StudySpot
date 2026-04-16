@@ -158,6 +158,10 @@ vite.config.ts.timestamp-*
 __pycache__/
 *.pyc
 
+# Runtime uploads
+backend/uploads/session_photos/*
+!backend/uploads/session_photos/.gitkeep
+
 # Virtual environment
 .venv/
 

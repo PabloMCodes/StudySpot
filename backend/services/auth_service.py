@@ -8,17 +8,21 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote, unquote, urlparse
 
 import google.auth.transport.requests
 import google.oauth2.id_token
+import httpx
 from jose import jwt
 from sqlalchemy import and_, exists, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from models.checkin import CheckIn
 from models.comment import Comment
 from models.follow import Follow
 from models.location import Location
+from models.session_photo import SessionPhoto
 from models.session import PersonalStudySession
 from models.user_location import UserLocation
 from models.user import User
@@ -50,6 +54,10 @@ GOOGLE_ANDROID_CLIENT_ID = os.getenv("GOOGLE_ANDROID_CLIENT_ID", "")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "session-photos")
 
 def authenticate_google_user(db: Session, id_token: str) -> dict[str, str]:
     if not _allowed_google_client_ids():
@@ -70,6 +78,18 @@ def authenticate_google_user(db: Session, id_token: str) -> dict[str, str]:
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+def authenticate_supabase_user(db: Session, access_token: str) -> dict[str, str]:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise ValueError("Supabase credentials are not configured")
+    if not JWT_SECRET_KEY:
+        raise ValueError("JWT_SECRET_KEY is not configured")
+
+    user_payload = verify_supabase_access_token(access_token=access_token)
+    user = get_or_create_supabase_user(db=db, user_payload=user_payload)
+    app_token = create_jwt_for_user(user_id=str(user.id))
+    return {"access_token": app_token, "token_type": "bearer"}
+
+
 def _allowed_google_client_ids() -> set[str]:
     return {
         client_id
@@ -78,14 +98,36 @@ def _allowed_google_client_ids() -> set[str]:
     }
 
 
+def verify_supabase_access_token(access_token: str) -> dict:
+    url = f"{SUPABASE_URL}/auth/v1/user"
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    try:
+        response = httpx.get(url, headers=headers, timeout=10.0)
+    except Exception:
+        raise ValueError("Authentication provider is unavailable")
+
+    if response.status_code != 200:
+        raise ValueError("Invalid Supabase access token")
+
+    data = response.json()
+    if not data.get("id") or not data.get("email"):
+        raise ValueError("Invalid Supabase token payload")
+
+    return data
+
+
 # verification by google payload, returns id information
 def verify_google_id_token(id_token: str) -> dict:
     request_session = google.auth.transport.requests.Request()
     try:
         # Verify signature/expiry first, then validate audience against allowed app client IDs.
         id_info = google.oauth2.id_token.verify_oauth2_token(id_token, request_session, None)
-    except Exception as exc:
-        raise ValueError(f"Invalid Google ID token: {exc}")
+    except Exception:
+        raise ValueError("Invalid Google ID token")
 
     if id_info.get("iss") not in ("accounts.google.com", "https://accounts.google.com"): 
         raise ValueError("Invalid Google token issuer") ##### "iss" is who issue token 
@@ -114,13 +156,78 @@ def get_or_create_google_user(db: Session, id_info: dict) -> User:
     if by_email:
         by_email.google_id = google_id
         by_email.name = id_info.get("name")
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            existing = db.scalar(select(User).where(User.google_id == google_id))
+            if existing:
+                return existing
+            raise
         db.refresh(by_email)
         return by_email
 
     new_user = User(google_id=google_id, email=email, name=id_info.get("name"))
     db.add(new_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(
+            select(User).where((User.google_id == google_id) | (User.email == email))
+        )
+        if existing:
+            return existing
+        raise
+    db.refresh(new_user)
+    return new_user
+
+
+def get_or_create_supabase_user(db: Session, user_payload: dict) -> User:
+    supabase_id = user_payload["id"]
+    email = user_payload["email"]
+    provider_key = f"supabase:{supabase_id}"
+
+    user = db.scalar(select(User).where(User.google_id == provider_key))
+    if user:
+        metadata = user_payload.get("user_metadata") or {}
+        user.name = metadata.get("name") or user.name
+        db.commit()
+        db.refresh(user)
+        return user
+
+    by_email = db.scalar(select(User).where(User.email == email))
+    if by_email:
+        metadata = user_payload.get("user_metadata") or {}
+        by_email.name = metadata.get("name") or by_email.name
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            existing = db.scalar(select(User).where(User.email == email))
+            if existing:
+                return existing
+            raise
+        db.refresh(by_email)
+        return by_email
+
+    metadata = user_payload.get("user_metadata") or {}
+    new_user = User(
+        google_id=provider_key,
+        email=email,
+        name=metadata.get("name"),
+    )
+    db.add(new_user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(
+            select(User).where((User.google_id == provider_key) | (User.email == email))
+        )
+        if existing:
+            return existing
+        raise
     db.refresh(new_user)
     return new_user
 
@@ -244,3 +351,62 @@ def get_user_profile_summary(db: Session, *, user_id: uuid.UUID) -> dict:
             for row in most_studied_topic_rows
         ],
     }
+
+
+def delete_user_account(db: Session, *, user: User) -> None:
+    """Delete the authenticated user and cascade related domain data."""
+    _cleanup_user_uploaded_photos(db, user_id=user.id)
+    db.delete(user)
+    db.commit()
+
+
+def _extract_supabase_object_key(image_url: str) -> str | None:
+    if not SUPABASE_URL:
+        return None
+    parsed_url = urlparse(image_url)
+    parsed_supabase_url = urlparse(SUPABASE_URL)
+    if parsed_url.netloc != parsed_supabase_url.netloc:
+        return None
+    public_prefix = f"/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/"
+    if not parsed_url.path.startswith(public_prefix):
+        return None
+    return unquote(parsed_url.path.removeprefix(public_prefix))
+
+
+def _delete_supabase_object(object_key: str) -> None:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return
+    object_url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_STORAGE_BUCKET}/{quote(object_key)}"
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+    }
+    try:
+        response = httpx.delete(object_url, headers=headers, timeout=10.0)
+        if response.status_code not in (200, 204, 404):
+            response.raise_for_status()
+    except Exception:
+        pass
+
+
+def _cleanup_user_uploaded_photos(db: Session, *, user_id: uuid.UUID) -> None:
+    upload_dir = Path(__file__).resolve().parent.parent / "uploads" / "session_photos"
+    image_urls = list(
+        db.scalars(select(SessionPhoto.image_url).where(SessionPhoto.user_id == user_id)).all()
+    )
+
+    for image_url in image_urls:
+        parsed_url = urlparse(image_url)
+        normalized_path = parsed_url.path if parsed_url.scheme else image_url
+        if "/uploads/session_photos/" in normalized_path:
+            filename = Path(normalized_path).name
+            if filename:
+                local_photo_path = upload_dir / filename
+                try:
+                    local_photo_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        object_key = _extract_supabase_object_key(image_url)
+        if object_key:
+            _delete_supabase_object(object_key)

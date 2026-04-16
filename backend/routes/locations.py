@@ -267,7 +267,6 @@ def get_location_photos(location_id: uuid.UUID, db: Session = Depends(get_db)):
                 SessionPhotoResponse(
                     id=most_helpful.id,
                     session_id=most_helpful.session_id,
-                    user_id=most_helpful.user_id,
                     location_id=most_helpful.location_id,
                     image_url=most_helpful.image_url,
                     helpful_count=most_helpful.helpful_count,
@@ -280,7 +279,6 @@ def get_location_photos(location_id: uuid.UUID, db: Session = Depends(get_db)):
                 SessionPhotoResponse(
                     id=item.id,
                     session_id=item.session_id,
-                    user_id=item.user_id,
                     location_id=item.location_id,
                     image_url=item.image_url,
                     helpful_count=item.helpful_count,

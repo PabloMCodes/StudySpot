@@ -17,7 +17,7 @@ interface MapContainerProps {
   userCoordinates: UserCoordinates | null;
   canCheckIn: boolean;
   onOpenCheckinsForLocation: (locationId: string) => void;
-  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click") => Promise<void>;
+  onLogLocationInteraction: (locationId: string, interactionType: "view" | "click" | "report") => Promise<void>;
   onLoadAvailability: (locationId: string) => Promise<{
     availability: CheckinAvailability | null;
     error: string | null;
