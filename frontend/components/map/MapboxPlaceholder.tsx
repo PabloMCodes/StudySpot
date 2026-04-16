@@ -7,6 +7,7 @@ import {
   Linking,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -757,7 +758,13 @@ export function MapboxPlaceholder({
       ...prev,
       queryText: location.name,
       openNow: false,
+      openAtMinutes: null,
+      minQuietLevel: null,
+      hasOutlets: null,
+      categories: [],
     }));
+    setCategoryFilter("all");
+    setViewportLocations((previous) => dedupeLocations([location, ...previous]));
     setIsSearchActive(false);
     setSelectedLocationId(location.id);
     void onLogLocationInteraction(location.id, "click");
@@ -767,7 +774,7 @@ export function MapboxPlaceholder({
       animationDuration: 320,
       animationMode: "easeTo",
     });
-  }, [onLogLocationInteraction]);
+  }, [dedupeLocations, onLogLocationInteraction]);
 
   const combinedError = viewportError ?? error;
   const mapIsLoading = loading || viewportLoading;
@@ -920,24 +927,24 @@ export function MapboxPlaceholder({
         </Pressable>
       ) : null}
 
-      {!mapIsLoading ? (
-        <View style={styles.searchAreaButtonWrap}>
-          <Pressable onPress={onSearchThisArea} style={styles.searchAreaButton}>
-            <Text style={styles.searchAreaButtonText}>Search this area</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
       {!shouldHideFiltersWhileSearching ? (
-        <>
-          <View style={styles.filterBar}>
+        <View style={styles.controlsPanel}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.controlsRow}
+          >
+            {!mapIsLoading ? (
+              <Pressable onPress={onSearchThisArea} style={styles.searchAreaButton}>
+                <Text style={styles.searchAreaButtonText}>↺ Search This Area</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => setIntent((prev) => ({ ...prev, openNow: !prev.openNow }))}
               style={[styles.filterChip, intent.openNow && styles.filterChipActive]}
             >
               <Text style={[styles.filterChipText, intent.openNow && styles.filterChipTextActive]}>Open Now</Text>
             </Pressable>
-
             <Pressable
               onPress={() => {
                 setCategoryFilter((previous) => {
@@ -953,7 +960,24 @@ export function MapboxPlaceholder({
                 {categoryFilter === "all" ? "Category: All" : `Category: ${categoryFilter}`}
               </Text>
             </Pressable>
-
+            <Pressable
+              onPress={() => {
+                setSortingMode((previous) => {
+                  if (previous === "best_spots") return "highest_availability";
+                  if (previous === "highest_availability") return "closest";
+                  return "best_spots";
+                });
+              }}
+              style={[styles.filterChip, sortingMode !== "best_spots" && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterChipText, sortingMode !== "best_spots" && styles.filterChipTextActive]}>
+                {sortingMode === "best_spots"
+                  ? "Sort: Best Spots"
+                  : sortingMode === "highest_availability"
+                    ? "Sort: Availability"
+                    : "Sort: Closest"}
+              </Text>
+            </Pressable>
             {hasActiveFilters ? (
               <Pressable
                 onPress={() => {
@@ -966,29 +990,8 @@ export function MapboxPlaceholder({
                 <Text style={styles.filterChipText}>Reset</Text>
               </Pressable>
             ) : null}
-          </View>
-
-          <View style={styles.filterBarSecondary}>
-            <Pressable
-              onPress={() => setSortingMode("best_spots")}
-              style={[styles.filterChip, sortingMode === "best_spots" && styles.filterChipActive]}
-            >
-              <Text style={[styles.filterChipText, sortingMode === "best_spots" && styles.filterChipTextActive]}>Best Spots</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setSortingMode("highest_availability")}
-              style={[styles.filterChip, sortingMode === "highest_availability" && styles.filterChipActive]}
-            >
-              <Text style={[styles.filterChipText, sortingMode === "highest_availability" && styles.filterChipTextActive]}>Highest Availability</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setSortingMode("closest")}
-              style={[styles.filterChip, sortingMode === "closest" && styles.filterChipActive]}
-            >
-              <Text style={[styles.filterChipText, sortingMode === "closest" && styles.filterChipTextActive]}>Closest</Text>
-            </Pressable>
-          </View>
-        </>
+          </ScrollView>
+        </View>
       ) : null}
 
       {mapIsLoading ? (
@@ -1023,7 +1026,7 @@ export function MapboxPlaceholder({
       ) : null}
 
       {!mapIsLoading && !combinedError && filteredLocations.length === 0 ? (
-        <View style={styles.errorCard}>
+        <View style={[styles.errorCard, styles.emptyStateCard]}>
           <Text style={styles.errorTitle}>No locations match these filters</Text>
           <Text style={styles.errorText}>Try widening the map or resetting filters.</Text>
           <Pressable
@@ -1193,23 +1196,16 @@ const styles = StyleSheet.create({
     color: "#334226",
     fontWeight: "800",
   },
-  searchAreaButtonWrap: {
-    position: "absolute",
-    top: 146,
-    alignSelf: "center",
-    zIndex: 40,
-    elevation: 4,
-  },
   searchAreaButton: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#2f5634",
-    backgroundColor: "#2f5634",
-    paddingHorizontal: 16,
+    borderColor: "#bfcfb2",
+    backgroundColor: "#eef7e8",
+    paddingHorizontal: 14,
     paddingVertical: 8,
   },
   searchAreaButtonText: {
-    color: "#f8f6ef",
+    color: "#2f5634",
     fontSize: 12,
     fontWeight: "800",
   },
@@ -1264,28 +1260,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 11,
   },
-  filterBar: {
+  controlsPanel: {
     position: "absolute",
     top: 64,
     left: 12,
     right: 12,
-    flexDirection: "row",
-    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#ddcfbb",
+    backgroundColor: "rgba(255, 253, 248, 0.93)",
+    paddingVertical: 6,
   },
-  filterBarSecondary: {
-    position: "absolute",
-    top: 106,
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    gap: 8,
-  },
-  filterBarTertiary: {
-    position: "absolute",
-    top: 148,
-    left: 12,
-    right: 12,
-    flexDirection: "row",
+  controlsRow: {
+    paddingHorizontal: 8,
+    alignItems: "center",
     gap: 8,
   },
   filterChip: {
@@ -1341,6 +1329,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 253, 248, 0.98)",
     paddingHorizontal: 14,
     paddingVertical: 11,
+  },
+  emptyStateCard: {
+    bottom: 24,
   },
   errorTitle: {
     fontSize: 13,
