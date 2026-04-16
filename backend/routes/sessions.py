@@ -48,13 +48,13 @@ def get_my_sessions(
         )
 
 
-@router.get("/me/leaderboard")
-def get_following_leaderboard(
+@router.get("/me/leaderboard/friends")
+def get_friends_leaderboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        entries = session_service.get_following_leaderboard(
+        entries = session_service.get_friends_leaderboard(
             db,
             current_user_id=current_user.id,
         )
@@ -68,7 +68,31 @@ def get_following_leaderboard(
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
-            content={"success": False, "data": None, "error": "Failed to fetch leaderboard"},
+            content={"success": False, "data": None, "error": "Failed to fetch friends leaderboard"},
+        )
+
+
+@router.get("/leaderboard/global")
+def get_global_leaderboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        entries = session_service.get_global_leaderboard(
+            db,
+            limit=100,
+        )
+        return {
+            "success": True,
+            "data": {"items": [entry.model_dump(mode="json") for entry in entries]},
+            "error": None,
+        }
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to fetch global leaderboard"},
         )
 
 

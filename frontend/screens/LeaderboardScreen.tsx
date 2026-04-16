@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { getFollowingLeaderboard } from "../services/sessionService";
-import type { FollowingLeaderboardEntry } from "../types/session";
+import { getFriendsLeaderboard, getGlobalLeaderboard } from "../services/sessionService";
+import type { LeaderboardEntry } from "../types/session";
 
 interface LeaderboardScreenProps {
   accessToken: string | null;
@@ -25,7 +25,8 @@ function formatStudyTime(totalMinutes: number): string {
 }
 
 export function LeaderboardScreen({ accessToken, onAuthExpired, onOpenProfile }: LeaderboardScreenProps) {
-  const [rows, setRows] = useState<FollowingLeaderboardEntry[]>([]);
+  const [rows, setRows] = useState<LeaderboardEntry[]>([]);
+  const [mode, setMode] = useState<"friends" | "global">("friends");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -38,7 +39,9 @@ export function LeaderboardScreen({ accessToken, onAuthExpired, onOpenProfile }:
     setLoading(true);
     setMessage(null);
 
-    const response = await getFollowingLeaderboard(accessToken);
+    const response = mode === "friends"
+      ? await getFriendsLeaderboard(accessToken)
+      : await getGlobalLeaderboard(accessToken);
     if (!response.success || !response.data) {
       if (isUnauthorizedError(response.error)) {
         onAuthExpired();
@@ -51,7 +54,7 @@ export function LeaderboardScreen({ accessToken, onAuthExpired, onOpenProfile }:
 
     setRows(response.data);
     setLoading(false);
-  }, [accessToken, onAuthExpired]);
+  }, [accessToken, mode, onAuthExpired]);
 
   useEffect(() => {
     void loadLeaderboard();
@@ -67,15 +70,37 @@ export function LeaderboardScreen({ accessToken, onAuthExpired, onOpenProfile }:
     >
       <View style={styles.headerRow}>
         <Text style={styles.title}>Leaderboard</Text>
-        <Text style={styles.subtitle}>Following • Last 7 days</Text>
+        <Text style={styles.subtitle}>
+          {mode === "friends" ? "Friends" : "Global"} • Last 7 days
+        </Text>
+      </View>
+      <View style={styles.segmentedRow}>
+        <Pressable
+          onPress={() => setMode("friends")}
+          style={[styles.segmentChip, mode === "friends" && styles.segmentChipActive]}
+        >
+          <Text style={[styles.segmentChipText, mode === "friends" && styles.segmentChipTextActive]}>Friends</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setMode("global")}
+          style={[styles.segmentChip, mode === "global" && styles.segmentChipActive]}
+        >
+          <Text style={[styles.segmentChipText, mode === "global" && styles.segmentChipTextActive]}>Global</Text>
+        </Pressable>
       </View>
 
       {message ? <Text style={styles.errorText}>{message}</Text> : null}
 
       {!loading && !rows.length ? (
         <View style={styles.emptyWrap}>
-          <Text style={styles.emptyTitle}>No followed users yet</Text>
-          <Text style={styles.emptyBody}>Follow people to see their study-time leaderboard.</Text>
+          <Text style={styles.emptyTitle}>
+            {mode === "friends" ? "No friends on leaderboard yet" : "No global sessions yet"}
+          </Text>
+          <Text style={styles.emptyBody}>
+            {mode === "friends"
+              ? "Add friends to compare study time."
+              : "Complete sessions to populate the global ranking."}
+          </Text>
         </View>
       ) : null}
 
@@ -118,6 +143,31 @@ const styles = StyleSheet.create({
     paddingBottom: 112,
     paddingHorizontal: 14,
     gap: 10,
+  },
+  segmentedRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  segmentChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d7cbb7",
+    backgroundColor: "#fffaf2",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  segmentChipActive: {
+    borderColor: "#2f6b57",
+    backgroundColor: "#2f6b57",
+  },
+  segmentChipText: {
+    color: "#60584a",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  segmentChipTextActive: {
+    color: "#ffffff",
   },
   headerRow: {
     paddingHorizontal: 2,

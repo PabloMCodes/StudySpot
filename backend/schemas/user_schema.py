@@ -56,8 +56,9 @@ class UserProfileResponse(BaseModel):
     profile_picture: str | None = None
     created_at: datetime
     total_checkins: int
-    follower_count: int
-    following_count: int
+    friend_count: int
+    incoming_request_count: int
+    outgoing_request_count: int
     saved_locations_count: int
     total_comments: int
     most_visited_locations: list[UserVisitedLocationResponse]

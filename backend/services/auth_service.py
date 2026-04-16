@@ -12,8 +12,8 @@ from pathlib import Path
 import google.auth.transport.requests
 import google.oauth2.id_token
 from jose import jwt
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, exists, func, select
+from sqlalchemy.orm import Session, aliased
 
 from models.checkin import CheckIn
 from models.comment import Comment
@@ -140,11 +140,46 @@ def get_user_profile_summary(db: Session, *, user_id: uuid.UUID) -> dict:
     total_checkins = db.scalar(
         select(func.count(CheckIn.id)).where(CheckIn.user_id == user_id)
     ) or 0
-    follower_count = db.scalar(
-        select(func.count()).select_from(Follow).where(Follow.following_id == user_id)
+    reverse_follow = aliased(Follow)
+    reverse_for_incoming = aliased(Follow)
+    reverse_for_outgoing = aliased(Follow)
+    friend_count = db.scalar(
+        select(func.count())
+        .select_from(Follow)
+        .join(
+            reverse_follow,
+            and_(
+                reverse_follow.follower_id == Follow.following_id,
+                reverse_follow.following_id == user_id,
+            ),
+        )
+        .where(Follow.follower_id == user_id)
     ) or 0
-    following_count = db.scalar(
-        select(func.count()).select_from(Follow).where(Follow.follower_id == user_id)
+    incoming_request_count = db.scalar(
+        select(func.count())
+        .select_from(Follow)
+        .where(
+            Follow.following_id == user_id,
+            ~exists(
+                select(reverse_for_incoming.follower_id).where(
+                    reverse_for_incoming.follower_id == user_id,
+                    reverse_for_incoming.following_id == Follow.follower_id,
+                )
+            ),
+        )
+    ) or 0
+    outgoing_request_count = db.scalar(
+        select(func.count())
+        .select_from(Follow)
+        .where(
+            Follow.follower_id == user_id,
+            ~exists(
+                select(reverse_for_outgoing.follower_id).where(
+                    reverse_for_outgoing.follower_id == Follow.following_id,
+                    reverse_for_outgoing.following_id == user_id,
+                )
+            ),
+        )
     ) or 0
     saved_locations_count = db.scalar(
         select(func.count()).select_from(UserLocation).where(UserLocation.user_id == user_id)
@@ -188,8 +223,9 @@ def get_user_profile_summary(db: Session, *, user_id: uuid.UUID) -> dict:
         "profile_picture": user.profile_picture,
         "created_at": user.created_at,
         "total_checkins": int(total_checkins),
-        "follower_count": int(follower_count),
-        "following_count": int(following_count),
+        "friend_count": int(friend_count),
+        "incoming_request_count": int(incoming_request_count),
+        "outgoing_request_count": int(outgoing_request_count),
         "saved_locations_count": int(saved_locations_count),
         "total_comments": int(total_comments),
         "most_visited_locations": [

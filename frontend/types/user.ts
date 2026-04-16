@@ -4,15 +4,18 @@ export interface UserProfile {
   email: string;
   profilePicture: string | null;
   totalCheckins: number;
-  followerCount: number;
-  followingCount: number;
+  friendCount: number;
+  incomingRequestCount: number;
+  outgoingRequestCount: number;
 }
 
-export interface FollowUser {
+export interface FriendUser {
   id: string;
   name: string | null;
   profilePicture: string | null;
 }
+
+export type FriendRelationshipStatus = "none" | "outgoing_request" | "incoming_request" | "friends" | "self";
 
 export interface CurrentUserProfile {
   id: string;

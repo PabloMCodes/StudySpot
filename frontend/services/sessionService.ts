@@ -3,9 +3,9 @@ import type {
   CompletePersonalSessionPayload,
   CreateStudySessionPayload,
   EndPersonalSessionPayload,
+  LeaderboardEntry,
   PersonalSessionsListResponse,
   UpdatePersonalSessionHistoryPayload,
-  FollowingLeaderboardEntry,
   SessionActionResponse,
   SessionUsageUpdatePayload,
   StartPersonalSessionPayload,
@@ -26,10 +26,29 @@ export function getMySessions(accessToken: string): Promise<ApiResponse<Personal
   });
 }
 
-export async function getFollowingLeaderboard(
+export async function getFriendsLeaderboard(
   accessToken: string,
-): Promise<ApiResponse<FollowingLeaderboardEntry[]>> {
-  const response = await apiRequest<{ items: FollowingLeaderboardEntry[] }>("/sessions/me/leaderboard", {
+): Promise<ApiResponse<LeaderboardEntry[]>> {
+  const response = await apiRequest<{ items: LeaderboardEntry[] }>("/sessions/me/leaderboard/friends", {
+    method: "GET",
+    headers: authHeaders(accessToken),
+  });
+
+  if (!response.success || !response.data) {
+    return { success: false, data: null, error: response.error };
+  }
+
+  return {
+    success: true,
+    data: response.data.items ?? [],
+    error: null,
+  };
+}
+
+export async function getGlobalLeaderboard(
+  accessToken: string,
+): Promise<ApiResponse<LeaderboardEntry[]>> {
+  const response = await apiRequest<{ items: LeaderboardEntry[] }>("/sessions/leaderboard/global", {
     method: "GET",
     headers: authHeaders(accessToken),
   });

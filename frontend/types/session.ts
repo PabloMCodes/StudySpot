@@ -88,7 +88,7 @@ export interface SessionActionResponse {
   message: string;
 }
 
-export interface FollowingLeaderboardEntry {
+export interface LeaderboardEntry {
   user_id: string;
   name: string | null;
   total_study_time: number;

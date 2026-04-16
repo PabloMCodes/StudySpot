@@ -8,6 +8,8 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
   process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
   "http://localhost:8000";
+export const PRIVACY_POLICY_URL =
+  process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL?.trim() || "https://example.com/privacy";
 const REQUEST_TIMEOUT_MS = 20_000;
 
 export async function apiRequest<T>(

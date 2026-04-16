@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { MapContainer } from "../components/map/MapContainer";
 import { useAuth } from "../context/AuthContext";
@@ -17,19 +17,23 @@ import {
   requestNotificationPermission,
   sendCheckinPromptNotification,
 } from "../services/notificationService";
-import { getFollowingLeaderboard } from "../services/sessionService";
+import { getFriendsLeaderboard } from "../services/sessionService";
+import { PRIVACY_POLICY_URL } from "../services/api";
 import {
-  followUser,
+  acceptFriendRequest,
+  cancelOrDeclineFriendRequest,
   getCurrentUserProfile,
-  getMyFollowers,
-  getMyFollowing,
+  getIncomingFriendRequests,
+  getMyFriends,
+  getOutgoingFriendRequests,
   getMyProfileStats,
+  removeFriend,
+  sendFriendRequest,
   getUserProfileStats,
-  unfollowUser,
 } from "../services/userService";
 import type { CheckinAvailability, CheckinPrompt } from "../types/checkin";
 import type { Location, UserCoordinates } from "../types/location";
-import type { CurrentUserProfile, FollowUser, UserProfileStats } from "../types/user";
+import type { CurrentUserProfile, FriendRelationshipStatus, FriendUser, UserProfileStats } from "../types/user";
 
 type HomeTab = "map" | "checkins" | "saved" | "leaderboard" | "profile";
 const TAB_BAR_RESERVED_HEIGHT = 80;
@@ -91,10 +95,11 @@ export function HomeScreen() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<CurrentUserProfile | null>(null);
-  const [followers, setFollowers] = useState<FollowUser[]>([]);
-  const [following, setFollowing] = useState<FollowUser[]>([]);
-  const [viewedProfile, setViewedProfile] = useState<FollowUser | null>(null);
-  const [updatingFollow, setUpdatingFollow] = useState(false);
+  const [friends, setFriends] = useState<FriendUser[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<FriendUser[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<FriendUser[]>([]);
+  const [viewedProfile, setViewedProfile] = useState<FriendUser | null>(null);
+  const [updatingFriendship, setUpdatingFriendship] = useState(false);
   const [profileStats, setProfileStats] = useState<UserProfileStats | null>(null);
   const [profileRank, setProfileRank] = useState<number | null>(null);
   const lastNotificationRef = useRef<{ key: string; sentAt: number } | null>(null);
@@ -173,8 +178,30 @@ export function HomeScreen() {
   }, [loadLocations]);
 
   useEffect(() => {
-    void requestLocationAndLoad();
-  }, [requestLocationAndLoad]);
+    const initializeLocations = async () => {
+      setLocationLoading(true);
+      setLocationMessage(null);
+      try {
+        const coords = await getCurrentCoordinatesIfPermitted();
+        if (coords) {
+          setUserCoordinates(coords);
+          setLocationMessage("Using your location for nearby recommendations.");
+          await loadLocations(coords);
+          return;
+        }
+
+        setUserCoordinates(null);
+        await loadLocations(null);
+      } catch {
+        setUserCoordinates(null);
+        await loadLocations(null);
+      } finally {
+        setLocationLoading(false);
+      }
+    };
+
+    void initializeLocations();
+  }, [loadLocations]);
 
   const pollCheckinPrompt = useCallback(async () => {
     if (!accessToken) {
@@ -336,21 +363,23 @@ export function HomeScreen() {
     }));
   }, []);
 
-  const loadFollowProfile = useCallback(async () => {
+  const loadFriendProfile = useCallback(async () => {
     if (!accessToken) {
       setCurrentUserProfile(null);
-      setFollowers([]);
-      setFollowing([]);
+      setFriends([]);
+      setIncomingRequests([]);
+      setOutgoingRequests([]);
       setViewedProfile(null);
       return;
     }
 
     setProfileMessage(null);
 
-    const [meResponse, followersResponse, followingResponse] = await Promise.all([
+    const [meResponse, friendsResponse, incomingResponse, outgoingResponse] = await Promise.all([
       getCurrentUserProfile(accessToken),
-      getMyFollowers(accessToken),
-      getMyFollowing(accessToken),
+      getMyFriends(accessToken),
+      getIncomingFriendRequests(accessToken),
+      getOutgoingFriendRequests(accessToken),
     ]);
 
     if (!meResponse.success || !meResponse.data) {
@@ -362,28 +391,30 @@ export function HomeScreen() {
       return;
     }
 
-    if (!followersResponse.success || !followingResponse.success) {
-      const firstError = followersResponse.error ?? followingResponse.error;
+    if (!friendsResponse.success || !incomingResponse.success || !outgoingResponse.success) {
+      const firstError = friendsResponse.error ?? incomingResponse.error ?? outgoingResponse.error;
       if (isUnauthorizedError(firstError)) {
         setAccessToken(null);
       } else {
-        setProfileMessage(firstError ?? "Failed to load followers.");
+        setProfileMessage(firstError ?? "Failed to load friends.");
       }
       return;
     }
 
-    const nextFollowers = followersResponse.data ?? [];
-    const nextFollowing = followingResponse.data ?? [];
+    const nextFriends = friendsResponse.data ?? [];
+    const nextIncoming = incomingResponse.data ?? [];
+    const nextOutgoing = outgoingResponse.data ?? [];
 
     setCurrentUserProfile(meResponse.data);
-    setFollowers(nextFollowers);
-    setFollowing(nextFollowing);
+    setFriends(nextFriends);
+    setIncomingRequests(nextIncoming);
+    setOutgoingRequests(nextOutgoing);
 
     setViewedProfile((previous) => {
       if (!previous) {
         return null;
       }
-      const merged = [...nextFollowers, ...nextFollowing].find((entry) => entry.id === previous.id);
+      const merged = [...nextFriends, ...nextIncoming, ...nextOutgoing].find((entry) => entry.id === previous.id);
       return merged ?? previous;
     });
 
@@ -393,8 +424,8 @@ export function HomeScreen() {
     if (activeTab !== "profile") {
       return;
     }
-    void loadFollowProfile();
-  }, [activeTab, loadFollowProfile]);
+    void loadFriendProfile();
+  }, [activeTab, loadFriendProfile]);
 
   const viewedUser = useMemo(
     () =>
@@ -412,9 +443,14 @@ export function HomeScreen() {
   const isViewingSelf = Boolean(
     currentUserProfile && viewedUser && currentUserProfile.id === viewedUser.id,
   );
-  const isFollowingViewedUser = Boolean(
-    viewedUser && following.some((user) => user.id === viewedUser.id),
-  );
+  const viewedFriendshipStatus: FriendRelationshipStatus = useMemo(() => {
+    if (!viewedUser || !currentUserProfile) return "none";
+    if (currentUserProfile.id === viewedUser.id) return "self";
+    if (friends.some((user) => user.id === viewedUser.id)) return "friends";
+    if (incomingRequests.some((user) => user.id === viewedUser.id)) return "incoming_request";
+    if (outgoingRequests.some((user) => user.id === viewedUser.id)) return "outgoing_request";
+    return "none";
+  }, [currentUserProfile, friends, incomingRequests, outgoingRequests, viewedUser]);
 
   const targetProfileUserId = viewedUser?.id ?? currentUserProfile?.id ?? null;
 
@@ -454,7 +490,7 @@ export function HomeScreen() {
         return;
       }
 
-      const leaderboardResponse = await getFollowingLeaderboard(accessToken);
+      const leaderboardResponse = await getFriendsLeaderboard(accessToken);
       if (!cancelled) {
         setProfileStats(statsResponse.data);
         if (leaderboardResponse.success && leaderboardResponse.data) {
@@ -473,34 +509,43 @@ export function HomeScreen() {
     };
   }, [accessToken, activeTab, currentUserProfile, setAccessToken, targetProfileUserId]);
 
-  const handleFollowToggle = useCallback(async () => {
+  const handleFriendAction = useCallback(async () => {
     if (!accessToken || !viewedUser || !currentUserProfile || currentUserProfile.id === viewedUser.id) {
       return;
     }
 
-    setUpdatingFollow(true);
-    const response = isFollowingViewedUser
-      ? await unfollowUser(accessToken, viewedUser.id)
-      : await followUser(accessToken, viewedUser.id);
+    setUpdatingFriendship(true);
+    const response =
+      viewedFriendshipStatus === "friends"
+        ? await removeFriend(accessToken, viewedUser.id)
+        : viewedFriendshipStatus === "incoming_request"
+          ? await acceptFriendRequest(accessToken, viewedUser.id)
+          : viewedFriendshipStatus === "outgoing_request"
+            ? await cancelOrDeclineFriendRequest(accessToken, viewedUser.id)
+            : await sendFriendRequest(accessToken, viewedUser.id);
 
     if (!response.success) {
       if (isUnauthorizedError(response.error)) {
         setAccessToken(null);
       } else {
-        setProfileMessage(response.error ?? "Follow action failed.");
+        setProfileMessage(response.error ?? "Friend action failed.");
       }
-      setUpdatingFollow(false);
+      setUpdatingFriendship(false);
       return;
     }
 
-    await loadFollowProfile();
-    setUpdatingFollow(false);
+    await loadFriendProfile();
+    setUpdatingFriendship(false);
   }, [
+    acceptFriendRequest,
     accessToken,
+    cancelOrDeclineFriendRequest,
     currentUserProfile,
-    isFollowingViewedUser,
-    loadFollowProfile,
+    loadFriendProfile,
+    removeFriend,
+    sendFriendRequest,
     setAccessToken,
+    viewedFriendshipStatus,
     viewedUser,
   ]);
 
@@ -511,6 +556,19 @@ export function HomeScreen() {
       profilePicture: null,
     });
     setActiveTab("profile");
+  }, []);
+
+  const handleOpenPrivacyPolicy = useCallback(async () => {
+    try {
+      const isSupported = await Linking.canOpenURL(PRIVACY_POLICY_URL);
+      if (!isSupported) {
+        setProfileMessage("Unable to open the privacy policy right now.");
+        return;
+      }
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      setProfileMessage("Unable to open the privacy policy right now.");
+    }
   }, []);
 
   const renderContent = () => {
@@ -579,27 +637,38 @@ export function HomeScreen() {
               </View>
             </View>
             <Text style={styles.profileSocialMeta}>
-              {followers.length} followers • {following.length} following
+              {friends.length} friends • {incomingRequests.length} incoming requests
             </Text>
 
             {!isViewingSelf && viewedUser ? (
               <Pressable
-                disabled={updatingFollow}
-                onPress={() => void handleFollowToggle()}
+                disabled={updatingFriendship}
+                onPress={() => void handleFriendAction()}
                 style={({ pressed }) => [
                   styles.followButton,
-                  isFollowingViewedUser ? styles.unfollowButton : styles.followButtonActive,
+                  viewedFriendshipStatus === "friends" || viewedFriendshipStatus === "outgoing_request"
+                    ? styles.unfollowButton
+                    : styles.followButtonActive,
                   pressed && styles.followButtonPressed,
-                  updatingFollow && styles.followButtonDisabled,
+                  updatingFriendship && styles.followButtonDisabled,
                 ]}
               >
                 <Text
                   style={[
                     styles.followButtonText,
-                    isFollowingViewedUser && styles.unfollowButtonText,
+                    (viewedFriendshipStatus === "friends" || viewedFriendshipStatus === "outgoing_request") &&
+                      styles.unfollowButtonText,
                   ]}
                 >
-                  {updatingFollow ? "Saving..." : isFollowingViewedUser ? "Unfollow" : "Follow"}
+                  {updatingFriendship
+                    ? "Saving..."
+                    : viewedFriendshipStatus === "friends"
+                      ? "Remove Friend"
+                      : viewedFriendshipStatus === "incoming_request"
+                        ? "Accept Friend Request"
+                        : viewedFriendshipStatus === "outgoing_request"
+                          ? "Cancel Request"
+                          : "Add Friend"}
                 </Text>
               </Pressable>
             ) : null}
@@ -670,11 +739,11 @@ export function HomeScreen() {
           ) : null}
 
           <View style={styles.profileSection}>
-            <Text style={styles.profileSectionTitle}>Followers</Text>
-            {followers.length ? (
-              followers.map((user) => (
+            <Text style={styles.profileSectionTitle}>Friends</Text>
+            {friends.length ? (
+              friends.map((user) => (
                 <Pressable
-                  key={`follower-${user.id}`}
+                  key={`friend-${user.id}`}
                   onPress={() => setViewedProfile(user)}
                   style={({ pressed }) => [styles.profileListItem, pressed && styles.profileListItemPressed]}
                 >
@@ -683,16 +752,16 @@ export function HomeScreen() {
                 </Pressable>
               ))
             ) : (
-              <Text style={styles.profileEmptyText}>No followers yet.</Text>
+              <Text style={styles.profileEmptyText}>No friends yet.</Text>
             )}
           </View>
 
           <View style={styles.profileSection}>
-            <Text style={styles.profileSectionTitle}>Following</Text>
-            {following.length ? (
-              following.map((user) => (
+            <Text style={styles.profileSectionTitle}>Incoming Requests</Text>
+            {incomingRequests.length ? (
+              incomingRequests.map((user) => (
                 <Pressable
-                  key={`following-${user.id}`}
+                  key={`incoming-${user.id}`}
                   onPress={() => setViewedProfile(user)}
                   style={({ pressed }) => [styles.profileListItem, pressed && styles.profileListItemPressed]}
                 >
@@ -701,8 +770,33 @@ export function HomeScreen() {
                 </Pressable>
               ))
             ) : (
-              <Text style={styles.profileEmptyText}>Not following anyone yet.</Text>
+              <Text style={styles.profileEmptyText}>No incoming requests.</Text>
             )}
+          </View>
+
+          <View style={styles.profileSection}>
+            <Text style={styles.profileSectionTitle}>Outgoing Requests</Text>
+            {outgoingRequests.length ? (
+              outgoingRequests.map((user) => (
+                <Pressable
+                  key={`outgoing-${user.id}`}
+                  onPress={() => setViewedProfile(user)}
+                  style={({ pressed }) => [styles.profileListItem, pressed && styles.profileListItemPressed]}
+                >
+                  <Text style={styles.profileListName}>{user.name ?? "Unnamed user"}</Text>
+                  <Text style={styles.profileListMeta}>@{user.id.slice(0, 8)}</Text>
+                </Pressable>
+              ))
+            ) : (
+              <Text style={styles.profileEmptyText}>No outgoing requests.</Text>
+            )}
+          </View>
+
+          <View style={styles.profileSection}>
+            <Text style={styles.profileSectionTitle}>Legal</Text>
+            <Pressable onPress={() => void handleOpenPrivacyPolicy()} style={styles.legalLinkButton}>
+              <Text style={styles.legalLinkText}>Privacy Policy</Text>
+            </Pressable>
           </View>
         </ScrollView>
       );
@@ -1160,6 +1254,16 @@ const styles = StyleSheet.create({
   profileEmptyText: {
     color: "#7d725f",
     fontSize: 13,
+  },
+  legalLinkButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+  },
+  legalLinkText: {
+    color: "#2f6b57",
+    fontSize: 13,
+    fontWeight: "700",
+    textDecorationLine: "underline",
   },
   tabBar: {
     position: "absolute",

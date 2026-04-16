@@ -120,8 +120,8 @@ class PersonalSessionsListResponse(BaseModel):
     history: list[PersonalSessionResponse]
 
 
-class FollowingLeaderboardEntryResponse(BaseModel):
-    """Leaderboard row for followed users ranked by recent study time."""
+class LeaderboardEntryResponse(BaseModel):
+    """Leaderboard row ranked by recent study time."""
 
     user_id: UUID
     name: str | None = None

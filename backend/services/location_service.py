@@ -69,6 +69,7 @@ EXCLUDED_NAME_TOKENS = {
     "dollar tree",
     "dollar general",
     "family dollar",
+    "7-eleven"
 }
 INCLUDED_HINT_TOKENS = {"cafe", "coffee", "library", "bookstore", "study", "restaurant"}
 

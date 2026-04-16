@@ -12,13 +12,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import Date, Float, Integer, and_, cast, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from models.follow import Follow
 from models.location import Location
 from models.session_photo import SessionPhoto
 from models.session import PersonalStudySession, SessionParticipant, StudySession
 from models.user import User
 from schemas.session_schema import (
-    FollowingLeaderboardEntryResponse,
+    LeaderboardEntryResponse,
     PersonalSessionComplete,
     PersonalSessionEnd,
     PersonalSessionHistoryUpdate,
@@ -31,7 +30,7 @@ from schemas.user_schema import (
     ProfileStatsResponse,
     RecentStudyPhotoResponse,
 )
-from services import photo_service
+from services import follows_service, photo_service
 from services.distance_service import haversine_meters
 
 SESSION_VALIDATION_RADIUS_METERS = 400
@@ -342,12 +341,13 @@ def delete_personal_session_history(
     db.commit()
 
 
-def get_following_leaderboard(
+def _build_leaderboard_for_user_ids(
     db: Session,
     *,
-    current_user_id: uuid.UUID,
-) -> list[FollowingLeaderboardEntryResponse]:
-    """Rank followed users by completed personal-study minutes in the last 7 days."""
+    user_ids: list[uuid.UUID],
+) -> list[LeaderboardEntryResponse]:
+    if not user_ids:
+        return []
     window_start = datetime.now(timezone.utc) - timedelta(days=LEADERBOARD_WINDOW_DAYS)
     total_minutes_expr = cast(
         func.floor(
@@ -371,43 +371,6 @@ def get_following_leaderboard(
             User.name.label("name"),
             total_minutes_expr.label("total_study_time"),
         )
-        .select_from(Follow)
-        .join(User, User.id == Follow.following_id)
-        .outerjoin(
-            PersonalStudySession,
-            and_(
-                PersonalStudySession.user_id == Follow.following_id,
-                PersonalStudySession.ended_at.is_not(None),
-                PersonalStudySession.auto_timed_out.is_(False),
-                PersonalStudySession.ended_at >= window_start,
-            ),
-        )
-        .where(Follow.follower_id == current_user_id)
-        .group_by(User.id, User.name)
-        .order_by(total_minutes_expr.desc(), User.name.asc().nulls_last(), User.id.asc())
-    )
-    rows = db.execute(statement).all()
-
-    self_statement = (
-        select(
-            User.id.label("user_id"),
-            User.name.label("name"),
-            cast(
-                func.floor(
-                    func.coalesce(
-                        func.sum(
-                            func.extract(
-                                "epoch",
-                                PersonalStudySession.ended_at - PersonalStudySession.started_at,
-                            )
-                        ),
-                        0.0,
-                    )
-                    / 60.0
-                ),
-                Integer,
-            ).label("total_study_time"),
-        )
         .select_from(User)
         .outerjoin(
             PersonalStudySession,
@@ -418,28 +381,15 @@ def get_following_leaderboard(
                 PersonalStudySession.ended_at >= window_start,
             ),
         )
-        .where(User.id == current_user_id)
+        .where(User.id.in_(user_ids))
         .group_by(User.id, User.name)
+        .order_by(total_minutes_expr.desc(), User.name.asc().nulls_last(), User.id.asc())
     )
-    self_row = db.execute(self_statement).one_or_none()
-
-    combined_rows = list(rows)
-    if self_row is not None and all(row.user_id != self_row.user_id for row in combined_rows):
-        combined_rows.append(self_row)
-
-    sorted_rows = sorted(
-        combined_rows,
-        key=lambda row: (
-            -(int(row.total_study_time or 0)),
-            (row.name or "").lower(),
-            str(row.user_id),
-        ),
-    )
-
-    leaderboard: list[FollowingLeaderboardEntryResponse] = []
-    for idx, row in enumerate(sorted_rows, start=1):
+    rows = db.execute(statement).all()
+    leaderboard: list[LeaderboardEntryResponse] = []
+    for idx, row in enumerate(rows, start=1):
         leaderboard.append(
-            FollowingLeaderboardEntryResponse(
+            LeaderboardEntryResponse(
                 user_id=row.user_id,
                 name=row.name,
                 total_study_time=int(row.total_study_time or 0),
@@ -447,6 +397,40 @@ def get_following_leaderboard(
             )
         )
     return leaderboard
+
+
+def get_friends_leaderboard(
+    db: Session,
+    *,
+    current_user_id: uuid.UUID,
+) -> list[LeaderboardEntryResponse]:
+    """Rank friends + self by completed personal-study minutes in the last 7 days."""
+    friend_ids = follows_service.get_friend_ids(db, user_id=current_user_id)
+    target_ids = [current_user_id, *friend_ids]
+    deduped_ids = list(dict.fromkeys(target_ids))
+    return _build_leaderboard_for_user_ids(db, user_ids=deduped_ids)
+
+
+def get_global_leaderboard(
+    db: Session,
+    *,
+    limit: int = 100,
+) -> list[LeaderboardEntryResponse]:
+    """Global leaderboard for all users over the last 7 days."""
+    window_start = datetime.now(timezone.utc) - timedelta(days=LEADERBOARD_WINDOW_DAYS)
+    active_user_ids = list(
+        db.scalars(
+            select(PersonalStudySession.user_id)
+            .where(
+                PersonalStudySession.ended_at.is_not(None),
+                PersonalStudySession.auto_timed_out.is_(False),
+                PersonalStudySession.ended_at >= window_start,
+            )
+            .distinct()
+        ).all()
+    )
+    leaderboard = _build_leaderboard_for_user_ids(db, user_ids=active_user_ids)
+    return leaderboard[: max(1, limit)]
 
 
 def get_user_profile_stats(
