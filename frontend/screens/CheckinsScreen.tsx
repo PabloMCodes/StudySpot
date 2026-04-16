@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EndSessionModal } from "../components/checkins/EndSessionModal";
@@ -7,7 +7,13 @@ import { StartSessionCard } from "../components/checkins/StartSessionCard";
 import { StudyHistoryList } from "../components/checkins/StudyHistoryList";
 import { checkoutCheckin, createCheckin, getMyCheckins } from "../services/checkinService";
 import { uploadPhoto } from "../services/photoService";
-import { completeSession, getMySessions, startSession } from "../services/sessionService";
+import {
+  completeSession,
+  deleteSessionHistory,
+  getMySessions,
+  startSession,
+  updateSessionHistory,
+} from "../services/sessionService";
 import type { CrowdLabel, MyCheckinSession } from "../types/checkin";
 import type { PersonalSession, PersonalSessionsListResponse } from "../types/session";
 import type { Location, UserCoordinates } from "../types/location";
@@ -66,6 +72,9 @@ export function CheckinsScreen({
   const [nowMillis, setNowMillis] = useState(Date.now());
   const [startingSession, setStartingSession] = useState(false);
   const [completingSession, setCompletingSession] = useState(false);
+  const [editingHistorySessionId, setEditingHistorySessionId] = useState<string | null>(null);
+  const [deletingHistorySessionId, setDeletingHistorySessionId] = useState<string | null>(null);
+  const hasLoadedSessionsOnceRef = useRef(false);
 
   const [isStartFormOpen, setIsStartFormOpen] = useState(false);
   const [useCurrentLocation, setUseCurrentLocation] = useState(false);
@@ -86,7 +95,7 @@ export function CheckinsScreen({
 
   const locationLabel = selectedLocation ? selectedLocation.name : "No location selected";
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async (options?: { silent?: boolean }) => {
     if (!accessToken) {
       setSessionsData(null);
       setActiveCheckinId(null);
@@ -94,7 +103,11 @@ export function CheckinsScreen({
       return;
     }
 
-    setLoading(true);
+    const silent = options?.silent ?? false;
+    const shouldShowLoading = !silent && !hasLoadedSessionsOnceRef.current;
+    if (shouldShowLoading) {
+      setLoading(true);
+    }
     let sessionsResponse = await getMySessions(accessToken);
     let checkinsResponse = await getMyCheckins(accessToken);
 
@@ -120,24 +133,33 @@ export function CheckinsScreen({
     if (!sessionsResponse.success || !sessionsResponse.data) {
       if (isUnauthorizedError(sessionsResponse.error)) {
         onAuthExpired();
-      } else {
+      } else if (!silent) {
         setMessage("Couldn’t load sessions right now. Pull back in a moment.");
       }
-      setLoading(false);
+      if (shouldShowLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     if (!checkinsResponse.success && isUnauthorizedError(checkinsResponse.error)) {
       onAuthExpired();
-      setLoading(false);
+      if (shouldShowLoading) {
+        setLoading(false);
+      }
       return;
     }
 
     setSessionsData(sessionsResponse.data);
     setActiveCheckinId(checkinsResponse.data?.active_checkin?.id ?? null);
     setActiveCheckin(checkinsResponse.data?.active_checkin ?? null);
-    setMessage(null);
-    setLoading(false);
+    if (!silent) {
+      setMessage(null);
+    }
+    hasLoadedSessionsOnceRef.current = true;
+    if (shouldShowLoading) {
+      setLoading(false);
+    }
   }, [accessToken, onAuthExpired, wait]);
 
   useEffect(() => {
@@ -149,7 +171,7 @@ export function CheckinsScreen({
   }, [onConsumePreferredLocation, preferredLocationId]);
 
   useEffect(() => {
-    void refreshAll();
+    void refreshAll({ silent: false });
   }, [refreshAll]);
 
   useEffect(() => {
@@ -160,7 +182,7 @@ export function CheckinsScreen({
   useEffect(() => {
     if (!accessToken) return;
     const refreshTimer = setInterval(() => {
-      void refreshAll();
+      void refreshAll({ silent: true });
     }, CHECKINS_REFRESH_MS);
     return () => clearInterval(refreshTimer);
   }, [accessToken, refreshAll]);
@@ -381,6 +403,101 @@ export function CheckinsScreen({
     void refreshAll();
   }, [accessToken, activeCheckinId, onAuthExpired, refreshAll, userCoordinates]);
 
+  const handleEditHistory = useCallback(
+    async (
+      sessionId: string,
+      payload: {
+        topic?: string;
+        start_note?: string;
+        end_note?: string;
+        rating?: number;
+        focus_level?: number;
+        accomplishment_score?: number;
+        add_photo_uris?: string[];
+        remove_photo_urls?: string[];
+      },
+    ) => {
+      if (!accessToken) return;
+      setEditingHistorySessionId(sessionId);
+      const uploadedPhotoUrls: string[] = [];
+      if (payload.add_photo_uris?.length) {
+        for (const localUri of payload.add_photo_uris) {
+          const uploadResponse = await uploadPhoto(accessToken, localUri);
+          if (!uploadResponse.success || !uploadResponse.data?.image_url) {
+            if (isUnauthorizedError(uploadResponse.error)) {
+              onAuthExpired();
+            } else {
+              setMessage(uploadResponse.error ?? "Photo upload failed.");
+            }
+            setEditingHistorySessionId(null);
+            return;
+          }
+          uploadedPhotoUrls.push(uploadResponse.data.image_url);
+        }
+      }
+
+      if (
+        !payload.topic &&
+        payload.start_note === undefined &&
+        payload.end_note === undefined &&
+        payload.rating === undefined &&
+        payload.focus_level === undefined &&
+        payload.accomplishment_score === undefined &&
+        uploadedPhotoUrls.length === 0 &&
+        (!payload.remove_photo_urls || payload.remove_photo_urls.length === 0)
+      ) {
+        setEditingHistorySessionId(null);
+        return;
+      }
+      const response = await updateSessionHistory(accessToken, sessionId, {
+        ...(payload.topic !== undefined ? { topic: payload.topic } : {}),
+        ...(payload.start_note !== undefined ? { start_note: payload.start_note } : {}),
+        ...(payload.end_note !== undefined ? { end_note: payload.end_note } : {}),
+        ...(payload.rating !== undefined ? { rating: payload.rating } : {}),
+        ...(payload.focus_level !== undefined ? { focus_level: payload.focus_level } : {}),
+        ...(payload.accomplishment_score !== undefined
+          ? { accomplishment_score: payload.accomplishment_score }
+          : {}),
+        ...(uploadedPhotoUrls.length ? { add_photo_urls: uploadedPhotoUrls } : {}),
+        ...(payload.remove_photo_urls?.length ? { remove_photo_urls: payload.remove_photo_urls } : {}),
+      });
+      if (!response.success || !response.data) {
+        if (isUnauthorizedError(response.error)) {
+          onAuthExpired();
+        } else {
+          setMessage(response.error ?? "Failed to update history item");
+        }
+        setEditingHistorySessionId(null);
+        return;
+      }
+      setSessionsData(response.data);
+      setMessage("History updated.");
+      setEditingHistorySessionId(null);
+    },
+    [accessToken, onAuthExpired],
+  );
+
+  const handleDeleteHistory = useCallback(
+    async (sessionId: string) => {
+      if (!accessToken) return;
+      setDeletingHistorySessionId(sessionId);
+      const response = await deleteSessionHistory(accessToken, sessionId);
+      if (!response.success || !response.data) {
+        if (isUnauthorizedError(response.error)) {
+          onAuthExpired();
+        } else {
+          setMessage(response.error ?? "Failed to delete history item");
+        }
+        setDeletingHistorySessionId(null);
+        return;
+      }
+      setSessionsData(response.data);
+      setMessage("History item deleted.");
+      setDeletingHistorySessionId(null);
+    },
+    [accessToken, onAuthExpired],
+  );
+
   return (
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       {message ? (
@@ -440,7 +557,14 @@ export function CheckinsScreen({
         </View>
       )}
 
-      <StudyHistoryList history={history} loading={loading} />
+      <StudyHistoryList
+        deletingSessionId={deletingHistorySessionId}
+        editingSessionId={editingHistorySessionId}
+        history={history}
+        loading={loading}
+        onDeleteHistory={(sessionId) => void handleDeleteHistory(sessionId)}
+        onEditHistory={(sessionId, payload) => void handleEditHistory(sessionId, payload)}
+      />
 
       <EndSessionModal
         loading={completingSession}

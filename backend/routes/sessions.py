@@ -16,6 +16,7 @@ from models.user import User
 from schemas.session_schema import (
     PersonalSessionComplete,
     PersonalSessionEnd,
+    PersonalSessionHistoryUpdate,
     PersonalSessionStart,
     SessionCreate,
     SessionResponse,
@@ -175,6 +176,72 @@ def complete_session(
         return JSONResponse(
             status_code=500,
             content={"success": False, "data": None, "error": "Failed to complete session"},
+        )
+
+
+@router.patch("/{session_id}")
+def update_personal_session_history(
+    session_id: uuid.UUID,
+    payload: PersonalSessionHistoryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        session_service.update_personal_session_history(
+            db,
+            user_id=current_user.id,
+            session_id=session_id,
+            payload=payload,
+        )
+        sessions_payload = session_service.get_my_personal_sessions(
+            db,
+            user_id=current_user.id,
+        )
+        return {"success": True, "data": sessions_payload.model_dump(mode="json"), "error": None}
+    except session_service.ServiceError as exc:
+        db.rollback()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "data": None, "error": exc.message},
+        )
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to update session"},
+        )
+
+
+@router.delete("/{session_id}")
+def delete_personal_session_history(
+    session_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        session_service.delete_personal_session_history(
+            db,
+            user_id=current_user.id,
+            session_id=session_id,
+        )
+        sessions_payload = session_service.get_my_personal_sessions(
+            db,
+            user_id=current_user.id,
+        )
+        return {"success": True, "data": sessions_payload.model_dump(mode="json"), "error": None}
+    except session_service.ServiceError as exc:
+        db.rollback()
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "data": None, "error": exc.message},
+        )
+    except Exception:
+        db.rollback()
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None, "error": "Failed to delete session"},
         )
 
 
