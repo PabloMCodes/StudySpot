@@ -49,7 +49,7 @@ interface MapboxPlaceholderProps {
 }
 
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
-const MAX_VISIBLE_PINS = 15;
+const MAX_VISIBLE_PINS = 100;
 const TOP_RANKED_COUNT = 15;
 const DISTANCE_OPTIONS_METERS: Array<number | null> = [null, 3219, 8047, 16093];
 const DEFAULT_VIEWPORT_LIMIT = 120;
@@ -145,6 +145,7 @@ export function MapboxPlaceholder({
   const [selectedLocationAvailability, setSelectedLocationAvailability] = useState<CheckinAvailability | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [externalMapError, setExternalMapError] = useState<string | null>(null);
   const [recommendationsPage, setRecommendationsPage] = useState(0);
   const [maxDistanceMeters, setMaxDistanceMeters] = useState<number | null>(null);
   const [cafeOnly, setCafeOnly] = useState(false);
@@ -184,7 +185,10 @@ export function MapboxPlaceholder({
     }
   }, [autocompleteSuggestions, locations, selectedLocationId, viewportLocations]);
 
-  const computeViewportLimit = useCallback((distanceLimitMeters: number | null): number => {
+  const computeViewportLimit = useCallback((distanceLimitMeters: number | null, queryText: string): number => {
+    if (queryText.trim().length > 0) {
+      return 200;
+    }
     if (distanceLimitMeters === null) {
       return DEFAULT_VIEWPORT_LIMIT;
     }
@@ -192,9 +196,9 @@ export function MapboxPlaceholder({
       return 160;
     }
     if (distanceLimitMeters <= 8047) {
-      return 240;
+      return 190;
     }
-    return 320;
+    return 200;
   }, []);
 
   const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
@@ -205,14 +209,12 @@ export function MapboxPlaceholder({
 
     try {
       const queryText = intent.queryText.trim();
-      const requestedLimit = computeViewportLimit(maxDistanceMeters);
-      const useDistanceMode = Boolean(maxDistanceMeters !== null && userCoordinates);
+      const requestedLimit = computeViewportLimit(maxDistanceMeters, queryText);
       const requestKey = JSON.stringify({
-        mode: useDistanceMode ? "distance" : "viewport",
-        bounds: useDistanceMode ? null : bounds,
+        mode: "viewport",
+        bounds,
         queryText,
         maxDistanceMeters,
-        userCoordinates,
         requestedLimit,
       });
       if (lastViewportFetchKeyRef.current === requestKey) {
@@ -221,22 +223,11 @@ export function MapboxPlaceholder({
       }
       lastViewportFetchKeyRef.current = requestKey;
 
-      const effectiveRadiusMeters = userCoordinates ? maxDistanceMeters : null;
-      const response = useDistanceMode
-        ? await getLocations({
-            q: queryText ? queryText : undefined,
-            lat: userCoordinates!.lat,
-            lng: userCoordinates!.lng,
-            radius_m: effectiveRadiusMeters ?? undefined,
-            limit: requestedLimit,
-            offset: 0,
-            sort: "distance",
-          })
-        : await getLocationsInBounds(bounds, {
-            q: queryText ? queryText : undefined,
-            limit: requestedLimit,
-            sort: "name",
-          });
+      const response = await getLocationsInBounds(bounds, {
+        q: queryText ? queryText : undefined,
+        limit: requestedLimit,
+        sort: "name",
+      });
 
       if (requestId !== latestViewportRequestIdRef.current) {
         return;
@@ -248,6 +239,7 @@ export function MapboxPlaceholder({
       }
 
       setViewportLocations(response.data);
+      setRecommendationsPage(0);
     } catch {
       if (requestId !== latestViewportRequestIdRef.current) {
         return;
@@ -258,7 +250,7 @@ export function MapboxPlaceholder({
         setViewportLoading(false);
       }
     }
-  }, [computeViewportLimit, intent.queryText, maxDistanceMeters, userCoordinates]);
+  }, [computeViewportLimit, intent.queryText, maxDistanceMeters]);
 
   const maybeFetchLocationsForState = useCallback(
     (state: MapState) => {
@@ -283,10 +275,10 @@ export function MapboxPlaceholder({
   );
 
   const onCameraChanged = useCallback(
-    (_state: MapState) => {
-      // Keep this lightweight; fetches are triggered on map idle for better UX/perf.
+    (state: MapState) => {
+      maybeFetchLocationsForState(state);
     },
-    [],
+    [maybeFetchLocationsForState],
   );
 
   const validLocations = useMemo(
@@ -301,13 +293,16 @@ export function MapboxPlaceholder({
     [viewportLocations],
   );
 
+  const hasTextQuery = intent.queryText.trim().length > 0;
+
   const filteredLocations = useMemo(() => {
-    const base = applySearchIntent(validLocations, intent);
+    const base = applySearchIntent(validLocations, hasTextQuery ? { ...intent, openNow: false } : intent);
     return base.filter((location) => {
-      if (cafeOnly && !isCafeOrCoffee(location)) {
+      // When a text search is active, prioritize query relevance and avoid chip filters hiding valid matches.
+      if (!hasTextQuery && cafeOnly && !isCafeOrCoffee(location)) {
         return false;
       }
-      if (maxDistanceMeters !== null && userCoordinates) {
+      if (!hasTextQuery && maxDistanceMeters !== null && userCoordinates) {
         const distance = haversineMeters(
           userCoordinates.lat,
           userCoordinates.lng,
@@ -320,7 +315,7 @@ export function MapboxPlaceholder({
       }
       return true;
     });
-  }, [cafeOnly, intent, maxDistanceMeters, userCoordinates, validLocations]);
+  }, [cafeOnly, hasTextQuery, intent, maxDistanceMeters, userCoordinates, validLocations]);
 
   const totalRecommendationPages = useMemo(
     () => Math.max(1, Math.ceil(filteredLocations.length / TOP_RANKED_COUNT)),
@@ -335,8 +330,8 @@ export function MapboxPlaceholder({
   const pageEnd = pageStart + TOP_RANKED_COUNT;
 
   const mapLocations = useMemo(
-    () => filteredLocations.slice(pageStart, pageStart + MAX_VISIBLE_PINS),
-    [filteredLocations, pageStart],
+    () => filteredLocations.slice(0, MAX_VISIBLE_PINS),
+    [filteredLocations],
   );
 
   const topRankedLocations = useMemo(
@@ -737,8 +732,18 @@ export function MapboxPlaceholder({
     });
   }, [onLogLocationInteraction]);
 
-  const openExternalMap = useCallback((url: string) => {
-    void Linking.openURL(url);
+  const openExternalMap = useCallback(async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) {
+        setExternalMapError("Unable to open maps link on this device.");
+        return;
+      }
+      await Linking.openURL(url);
+      setExternalMapError(null);
+    } catch {
+      setExternalMapError("Unable to open maps link right now.");
+    }
   }, []);
 
   const combinedError = viewportError ?? error;
@@ -944,6 +949,13 @@ export function MapboxPlaceholder({
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>Map diagnostics</Text>
           <Text style={styles.errorText}>{mapDiagnostics}</Text>
+        </View>
+      ) : null}
+
+      {externalMapError ? (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorTitle}>External link error</Text>
+          <Text style={styles.errorText}>{externalMapError}</Text>
         </View>
       ) : null}
 
