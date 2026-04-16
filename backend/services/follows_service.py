@@ -179,10 +179,11 @@ def get_pending_incoming_requests(
     user_id: uuid.UUID,
 ) -> list[User]:
     """Users who sent requests to me that I have not accepted yet."""
+    reverse_follow = aliased(Follow)
     reverse_exists = exists(
-        select(Follow.follower_id).where(
-            Follow.follower_id == user_id,
-            Follow.following_id == User.id,
+        select(reverse_follow.follower_id).where(
+            reverse_follow.follower_id == user_id,
+            reverse_follow.following_id == User.id,
         )
     )
 
@@ -208,10 +209,11 @@ def get_pending_outgoing_requests(
     if target is None:
         raise ServiceError(status_code=404, message="User not found.")
 
+    reverse_follow = aliased(Follow)
     reverse_exists = exists(
-        select(Follow.follower_id).where(
-            Follow.follower_id == User.id,
-            Follow.following_id == user_id,
+        select(reverse_follow.follower_id).where(
+            reverse_follow.follower_id == User.id,
+            reverse_follow.following_id == user_id,
         )
     )
 
