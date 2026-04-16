@@ -24,6 +24,19 @@ function formatStudyTime(totalMinutes: number): string {
   return `${hours}h ${minutes}m`;
 }
 
+function TrophyIcon() {
+  return (
+    <View style={styles.trophyIconWrap}>
+      <View style={styles.trophyCup}>
+        <View style={styles.trophyHandleLeft} />
+        <View style={styles.trophyHandleRight} />
+      </View>
+      <View style={styles.trophyStem} />
+      <View style={styles.trophyBase} />
+    </View>
+  );
+}
+
 export function LeaderboardScreen({ accessToken, onAuthExpired, onOpenProfile }: LeaderboardScreenProps) {
   const [rows, setRows] = useState<LeaderboardEntry[]>([]);
   const [mode, setMode] = useState<"friends" | "global">("friends");
@@ -69,7 +82,10 @@ export function LeaderboardScreen({ accessToken, onAuthExpired, onOpenProfile }:
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Leaderboard</Text>
+        <View style={styles.titleRow}>
+          <TrophyIcon />
+          <Text style={styles.title}>Leaderboard</Text>
+        </View>
         <Text style={styles.subtitle}>
           {mode === "friends" ? "Friends" : "Global"} • Last 7 days
         </Text>
@@ -177,6 +193,64 @@ const styles = StyleSheet.create({
     color: "#2f4232",
     fontSize: 27,
     fontWeight: "800",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  trophyIconWrap: {
+    width: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trophyCup: {
+    width: 11,
+    height: 8,
+    borderWidth: 1.7,
+    borderColor: "#2f4232",
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    position: "relative",
+  },
+  trophyHandleLeft: {
+    position: "absolute",
+    left: -5,
+    top: 1,
+    width: 4,
+    height: 5,
+    borderWidth: 1.3,
+    borderColor: "#2f4232",
+    borderRightWidth: 0,
+    borderTopLeftRadius: 3,
+    borderBottomLeftRadius: 3,
+  },
+  trophyHandleRight: {
+    position: "absolute",
+    right: -5,
+    top: 1,
+    width: 4,
+    height: 5,
+    borderWidth: 1.3,
+    borderColor: "#2f4232",
+    borderLeftWidth: 0,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+  },
+  trophyStem: {
+    width: 3,
+    height: 5,
+    borderRadius: 2,
+    marginTop: 1,
+    backgroundColor: "#2f4232",
+  },
+  trophyBase: {
+    width: 12,
+    height: 3,
+    borderRadius: 2,
+    marginTop: 1,
+    backgroundColor: "#2f4232",
   },
   subtitle: {
     color: "#756e62",
