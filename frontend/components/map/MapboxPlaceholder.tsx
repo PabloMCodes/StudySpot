@@ -1,6 +1,17 @@
 import Mapbox, { type Camera, type MapState } from "@rnmapbox/maps";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Linking,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import {
   applySearchIntent,
@@ -40,8 +51,12 @@ interface MapboxPlaceholderProps {
 const DEFAULT_CENTER: [number, number] = [-81.2001, 28.6024];
 const MAX_VISIBLE_PINS = 15;
 const TOP_RANKED_COUNT = 15;
-const RECOMMENDATIONS_SHEET_COLLAPSE_OFFSET = 320;
 const DISTANCE_OPTIONS_METERS: Array<number | null> = [null, 3219, 8047, 16093];
+const DEFAULT_VIEWPORT_LIMIT = 120;
+const SHEET_BOTTOM_OFFSET = 12;
+const SHEET_TOP_RESERVED = 120;
+const SHEET_MIN_HEIGHT = 72;
+const SHEET_DEFAULT_HEIGHT = 300;
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const radius = 6_371_000;
@@ -64,6 +79,10 @@ function formatDistanceFilterLabel(maxDistanceMeters: number | null): string {
   if (maxDistanceMeters === null) return "Any distance";
   const miles = Math.round(maxDistanceMeters / 1609.34);
   return `Within ${miles} mi`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function isCafeOrCoffee(location: Location): boolean {
@@ -113,6 +132,7 @@ export function MapboxPlaceholder({
   const hasAutoCenteredRef = useRef(false);
   const latestViewportRequestIdRef = useRef(0);
   const lastViewportBoundsRef = useRef<LocationBounds | null>(null);
+  const lastViewportFetchKeyRef = useRef<string | null>(null);
   const [mapboxInitError, setMapboxInitError] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [intent, setIntent] = useState<SearchIntent>(DEFAULT_SEARCH_INTENT);
@@ -125,11 +145,16 @@ export function MapboxPlaceholder({
   const [selectedLocationAvailability, setSelectedLocationAvailability] = useState<CheckinAvailability | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
-  const [showRecommendations, setShowRecommendations] = useState(true);
   const [recommendationsPage, setRecommendationsPage] = useState(0);
   const [maxDistanceMeters, setMaxDistanceMeters] = useState<number | null>(null);
   const [cafeOnly, setCafeOnly] = useState(false);
-  const recommendationsVisibility = useRef(new Animated.Value(1)).current;
+  const [mapContainerHeight, setMapContainerHeight] = useState(0);
+  const resolvedMapHeight = mapContainerHeight > 0 ? mapContainerHeight : 560;
+  const maxSheetHeight = Math.max(SHEET_MIN_HEIGHT + 40, resolvedMapHeight - SHEET_TOP_RESERVED);
+  const initialSheetHeight = clamp(Math.min(SHEET_DEFAULT_HEIGHT, maxSheetHeight), SHEET_MIN_HEIGHT, maxSheetHeight);
+  const sheetHeightAnim = useRef(new Animated.Value(initialSheetHeight)).current;
+  const sheetHeightRef = useRef(initialSheetHeight);
+  const sheetStartHeightRef = useRef(initialSheetHeight);
   const [topAvailabilityById, setTopAvailabilityById] = useState<Record<string, CheckinAvailability>>({});
   const blurSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -159,6 +184,19 @@ export function MapboxPlaceholder({
     }
   }, [autocompleteSuggestions, locations, selectedLocationId, viewportLocations]);
 
+  const computeViewportLimit = useCallback((distanceLimitMeters: number | null): number => {
+    if (distanceLimitMeters === null) {
+      return DEFAULT_VIEWPORT_LIMIT;
+    }
+    if (distanceLimitMeters <= 3219) {
+      return 160;
+    }
+    if (distanceLimitMeters <= 8047) {
+      return 240;
+    }
+    return 320;
+  }, []);
+
   const fetchLocationsForBounds = useCallback(async (bounds: LocationBounds) => {
     const requestId = latestViewportRequestIdRef.current + 1;
     latestViewportRequestIdRef.current = requestId;
@@ -166,10 +204,39 @@ export function MapboxPlaceholder({
     setViewportError(null);
 
     try {
-      const response = await getLocationsInBounds(bounds, {
-        limit: 100,
-        sort: "name",
+      const queryText = intent.queryText.trim();
+      const requestedLimit = computeViewportLimit(maxDistanceMeters);
+      const useDistanceMode = Boolean(maxDistanceMeters !== null && userCoordinates);
+      const requestKey = JSON.stringify({
+        mode: useDistanceMode ? "distance" : "viewport",
+        bounds: useDistanceMode ? null : bounds,
+        queryText,
+        maxDistanceMeters,
+        userCoordinates,
+        requestedLimit,
       });
+      if (lastViewportFetchKeyRef.current === requestKey) {
+        setViewportLoading(false);
+        return;
+      }
+      lastViewportFetchKeyRef.current = requestKey;
+
+      const effectiveRadiusMeters = userCoordinates ? maxDistanceMeters : null;
+      const response = useDistanceMode
+        ? await getLocations({
+            q: queryText ? queryText : undefined,
+            lat: userCoordinates!.lat,
+            lng: userCoordinates!.lng,
+            radius_m: effectiveRadiusMeters ?? undefined,
+            limit: requestedLimit,
+            offset: 0,
+            sort: "distance",
+          })
+        : await getLocationsInBounds(bounds, {
+            q: queryText ? queryText : undefined,
+            limit: requestedLimit,
+            sort: "name",
+          });
 
       if (requestId !== latestViewportRequestIdRef.current) {
         return;
@@ -191,14 +258,21 @@ export function MapboxPlaceholder({
         setViewportLoading(false);
       }
     }
-  }, []);
+  }, [computeViewportLimit, intent.queryText, maxDistanceMeters, userCoordinates]);
 
   const maybeFetchLocationsForState = useCallback(
-    (_state: MapState) => {
-      // Keep recommendations stable (nearest known mapped study-friendly spots).
-      // We intentionally do not replace them with viewport-bounded fetches.
+    (state: MapState) => {
+      const bounds = boundsFromCameraState(state);
+      if (!bounds) {
+        return;
+      }
+      if (!didBoundsChange(lastViewportBoundsRef.current, bounds)) {
+        return;
+      }
+      lastViewportBoundsRef.current = bounds;
+      void fetchLocationsForBounds(bounds);
     },
-    [],
+    [fetchLocationsForBounds],
   );
 
   const onMapIdle = useCallback(
@@ -209,10 +283,10 @@ export function MapboxPlaceholder({
   );
 
   const onCameraChanged = useCallback(
-    (state: MapState) => {
-      maybeFetchLocationsForState(state);
+    (_state: MapState) => {
+      // Keep this lightweight; fetches are triggered on map idle for better UX/perf.
     },
-    [maybeFetchLocationsForState],
+    [],
   );
 
   const validLocations = useMemo(
@@ -362,7 +436,6 @@ export function MapboxPlaceholder({
 
   useEffect(() => {
     if (intent.queryText.trim().length > 0) {
-      setShowRecommendations(true);
       setRecommendationsPage(0);
     }
   }, [intent.queryText]);
@@ -372,13 +445,53 @@ export function MapboxPlaceholder({
   }, [cafeOnly, intent.openNow, maxDistanceMeters]);
 
   useEffect(() => {
-    Animated.timing(recommendationsVisibility, {
-      toValue: showRecommendations ? 1 : 0,
-      duration: 260,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [recommendationsVisibility, showRecommendations]);
+    const bounds = lastViewportBoundsRef.current;
+    if (!bounds) {
+      return;
+    }
+    lastViewportFetchKeyRef.current = null;
+    void fetchLocationsForBounds(bounds);
+  }, [fetchLocationsForBounds, intent.queryText, maxDistanceMeters]);
+
+  useEffect(() => {
+    const clamped = clamp(sheetHeightRef.current, SHEET_MIN_HEIGHT, maxSheetHeight);
+    sheetHeightRef.current = clamped;
+    sheetHeightAnim.setValue(clamped);
+  }, [maxSheetHeight, sheetHeightAnim]);
+
+  const sheetPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 2,
+        onMoveShouldSetPanResponderCapture: (_, gesture) => Math.abs(gesture.dy) > 2,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          sheetStartHeightRef.current = sheetHeightRef.current;
+        },
+        onPanResponderMove: (_, gesture) => {
+          const next = clamp(sheetStartHeightRef.current - gesture.dy, SHEET_MIN_HEIGHT, maxSheetHeight);
+          sheetHeightRef.current = next;
+          sheetHeightAnim.setValue(next);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const projected = clamp(
+            sheetStartHeightRef.current - gesture.dy - gesture.vy * 58,
+            SHEET_MIN_HEIGHT,
+            maxSheetHeight,
+          );
+          sheetHeightRef.current = projected;
+          Animated.spring(sheetHeightAnim, {
+            toValue: projected,
+            damping: 18,
+            stiffness: 220,
+            mass: 0.55,
+            useNativeDriver: false,
+          }).start();
+        },
+      }),
+    [maxSheetHeight, sheetHeightAnim],
+  );
 
   useEffect(() => {
     const query = intent.queryText.trim();
@@ -650,7 +763,15 @@ export function MapboxPlaceholder({
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      onLayout={(event) => {
+        const nextHeight = event.nativeEvent.layout.height;
+        if (Number.isFinite(nextHeight) && nextHeight > 0) {
+          setMapContainerHeight(nextHeight);
+        }
+      }}
+      style={styles.container}
+    >
       <Mapbox.MapView
         key={styleURL}
         onCameraChanged={onCameraChanged}
@@ -845,22 +966,17 @@ export function MapboxPlaceholder({
 
       {!mapIsLoading && !combinedError && topRankedWithDistance.length > 0 ? (
         <Animated.View
-          pointerEvents={showRecommendations ? "auto" : "none"}
           style={[
             styles.rankedSheet,
             {
-              opacity: recommendationsVisibility,
-              transform: [
-                {
-                  translateY: recommendationsVisibility.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [RECOMMENDATIONS_SHEET_COLLAPSE_OFFSET, 0],
-                  }),
-                },
-              ],
+              height: sheetHeightAnim,
+              bottom: SHEET_BOTTOM_OFFSET,
             },
           ]}
         >
+          <View {...sheetPanResponder.panHandlers} style={styles.rankedDragHandleArea}>
+            <View style={styles.rankedDragHandle} />
+          </View>
           <View style={styles.rankedHeaderRow}>
             <Text style={styles.rankedTitle}>Nearest study-friendly spots</Text>
             <View style={styles.rankedHeaderActions}>
@@ -881,9 +997,6 @@ export function MapboxPlaceholder({
                 ]}
               >
                 <Text style={styles.rankedNavText}>→</Text>
-              </Pressable>
-              <Pressable onPress={() => setShowRecommendations(false)} style={styles.rankedToggleChip}>
-                <Text style={styles.rankedToggleText}>Hide</Text>
               </Pressable>
             </View>
           </View>
@@ -939,29 +1052,6 @@ export function MapboxPlaceholder({
               );
             })}
           </ScrollView>
-        </Animated.View>
-      ) : null}
-      {!mapIsLoading && !combinedError && topRankedWithDistance.length > 0 ? (
-        <Animated.View
-          pointerEvents={showRecommendations ? "none" : "auto"}
-          style={{
-            opacity: recommendationsVisibility.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 0],
-            }),
-            transform: [
-              {
-                translateY: recommendationsVisibility.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 8],
-                }),
-              },
-            ],
-          }}
-        >
-          <Pressable onPress={() => setShowRecommendations(true)} style={styles.rankedCollapsedHandle}>
-            <Text style={styles.rankedCollapsedHandleText}>Show spots</Text>
-          </Pressable>
         </Animated.View>
       ) : null}
 
@@ -1197,7 +1287,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
-    bottom: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#d6cdb8",
@@ -1205,10 +1294,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
-    maxHeight: 320,
+  },
+  rankedDragHandleArea: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  rankedDragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "#d0c5b2",
   },
   rankedScroll: {
-    maxHeight: 270,
+    flex: 1,
   },
   rankedScrollContent: {
     gap: 8,
@@ -1255,35 +1355,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minWidth: 34,
     textAlign: "center",
-  },
-  rankedToggleChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#c8d8bf",
-    backgroundColor: "#eef7e8",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  rankedToggleText: {
-    fontSize: 11,
-    color: "#2f5634",
-    fontWeight: "700",
-  },
-  rankedCollapsedHandle: {
-    position: "absolute",
-    right: 12,
-    bottom: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#c8d8bf",
-    backgroundColor: "rgba(238, 247, 232, 0.98)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  rankedCollapsedHandleText: {
-    fontSize: 12,
-    color: "#2f5634",
-    fontWeight: "700",
   },
   rankedCard: {
     borderRadius: 10,

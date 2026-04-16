@@ -21,6 +21,7 @@ from schemas.session_schema import (
     FollowingLeaderboardEntryResponse,
     PersonalSessionComplete,
     PersonalSessionEnd,
+    PersonalSessionHistoryUpdate,
     PersonalSessionResponse,
     PersonalSessionsListResponse,
     PersonalSessionStart,
@@ -246,6 +247,99 @@ def complete_personal_session(
     db.commit()
     db.refresh(session)
     return session
+
+
+def update_personal_session_history(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    payload: PersonalSessionHistoryUpdate,
+) -> PersonalStudySession:
+    """Update editable fields for an ended personal study session."""
+    session = db.get(PersonalStudySession, session_id)
+    if session is None or session.user_id != user_id:
+        raise ServiceError(status_code=404, message="Session not found")
+    if session.ended_at is None:
+        raise ServiceError(status_code=400, message="Active sessions cannot be edited")
+
+    if payload.topic is not None:
+        topic = payload.topic.strip()
+        if not topic:
+            raise ServiceError(status_code=400, message="Topic cannot be empty")
+        session.topic = topic
+    if payload.start_note is not None:
+        note = payload.start_note.strip()
+        session.start_note = note if note else None
+    if payload.end_note is not None:
+        note = payload.end_note.strip()
+        session.end_note = note if note else None
+    if payload.rating is not None:
+        session.rating = payload.rating
+    if payload.focus_level is not None:
+        session.focus_level = payload.focus_level
+    if payload.accomplishment_score is not None:
+        session.accomplishment_score = payload.accomplishment_score
+
+    remove_photo_urls = [
+        url.strip()
+        for url in payload.remove_photo_urls
+        if isinstance(url, str) and url.strip()
+    ]
+    if remove_photo_urls:
+        delete_statement = select(SessionPhoto).where(
+            SessionPhoto.session_id == session.id,
+            SessionPhoto.user_id == user_id,
+            SessionPhoto.image_url.in_(remove_photo_urls),
+        )
+        for photo in db.scalars(delete_statement).all():
+            db.delete(photo)
+
+    add_photo_urls = [
+        url.strip()
+        for url in payload.add_photo_urls
+        if isinstance(url, str) and url.strip()
+    ]
+    if add_photo_urls:
+        existing_urls = set(
+            db.scalars(
+                select(SessionPhoto.image_url).where(
+                    SessionPhoto.session_id == session.id,
+                    SessionPhoto.user_id == user_id,
+                )
+            ).all()
+        )
+        for image_url in add_photo_urls:
+            if image_url in existing_urls:
+                continue
+            photo_service.create_session_photo(
+                db,
+                session_id=session.id,
+                user_id=user_id,
+                image_url=image_url,
+            )
+            existing_urls.add(image_url)
+
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def delete_personal_session_history(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+) -> None:
+    """Delete an ended personal study session from history."""
+    session = db.get(PersonalStudySession, session_id)
+    if session is None or session.user_id != user_id:
+        raise ServiceError(status_code=404, message="Session not found")
+    if session.ended_at is None:
+        raise ServiceError(status_code=400, message="Active sessions cannot be deleted")
+
+    db.delete(session)
+    db.commit()
 
 
 def get_following_leaderboard(

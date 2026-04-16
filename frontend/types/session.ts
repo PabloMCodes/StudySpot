@@ -47,6 +47,17 @@ export interface CompletePersonalSessionPayload {
   image_url?: string;
 }
 
+export interface UpdatePersonalSessionHistoryPayload {
+  topic?: string;
+  start_note?: string;
+  end_note?: string;
+  rating?: number;
+  focus_level?: number;
+  accomplishment_score?: number;
+  add_photo_urls?: string[];
+  remove_photo_urls?: string[];
+}
+
 export interface StudySession {
   id: string;
   location_id: string;

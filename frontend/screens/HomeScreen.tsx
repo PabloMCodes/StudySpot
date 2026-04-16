@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { MapContainer } from "../components/map/MapContainer";
@@ -36,6 +36,10 @@ const TAB_BAR_RESERVED_HEIGHT = 80;
 const CHECKIN_PROMPT_POLL_MS = 60 * 1000;
 const NOTIFICATION_COOLDOWN_MS = 15 * 60 * 1000;
 const INTERACTION_DEDUP_MS = 5_000;
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ??
+  "http://localhost:8000";
 
 function isUnauthorizedError(message: string | null | undefined): boolean {
   const normalized = (message ?? "").toLowerCase();
@@ -51,6 +55,26 @@ function formatStudyMinutes(totalMinutes: number | null | undefined): string {
   return `${hours}h ${minutes}m`;
 }
 
+function resolveMediaUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      if (parsed.pathname.includes("/uploads/session_photos/")) {
+        return `${API_BASE_URL}${parsed.pathname}${parsed.search}`;
+      }
+      if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+        return `${API_BASE_URL}${parsed.pathname}${parsed.search}`;
+      }
+      return value;
+    } catch {
+      return value;
+    }
+  }
+  if (value.startsWith("/")) return `${API_BASE_URL}${value}`;
+  return `${API_BASE_URL}/${value}`;
+}
+
 export function HomeScreen() {
   const { accessToken, setAccessToken } = useAuth();
   const [locations, setLocations] = useState<Location[]>([]);
@@ -62,6 +86,7 @@ export function HomeScreen() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationMessage, setLocationMessage] = useState<string | null>(null);
   const [nearbyPrompt, setNearbyPrompt] = useState<CheckinPrompt | null>(null);
+  const [dismissedPromptLocationId, setDismissedPromptLocationId] = useState<string | null>(null);
   const [preferredCheckinLocationId, setPreferredCheckinLocationId] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
@@ -275,6 +300,21 @@ export function HomeScreen() {
   }, []);
 
   const promptLocationId = nearbyPrompt?.location_id ?? null;
+  const promptLocationName = nearbyPrompt?.location_name ?? "this spot";
+  const promptDistanceMeters = nearbyPrompt?.distance_meters ?? null;
+  const shouldShowPrompt =
+    Boolean(nearbyPrompt?.should_prompt && promptLocationId) &&
+    promptLocationId !== dismissedPromptLocationId;
+
+  useEffect(() => {
+    if (!promptLocationId) {
+      setDismissedPromptLocationId(null);
+      return;
+    }
+    if (dismissedPromptLocationId && dismissedPromptLocationId !== promptLocationId) {
+      setDismissedPromptLocationId(null);
+    }
+  }, [dismissedPromptLocationId, promptLocationId]);
 
   const handleRateSpot = useCallback((locationId: string, rating: number) => {
     setSavedSpotsById((prev) => ({
@@ -305,7 +345,6 @@ export function HomeScreen() {
       return;
     }
 
-    setProfileLoading(true);
     setProfileMessage(null);
 
     const [meResponse, followersResponse, followingResponse] = await Promise.all([
@@ -320,7 +359,6 @@ export function HomeScreen() {
       } else {
         setProfileMessage(meResponse.error ?? "Failed to load profile.");
       }
-      setProfileLoading(false);
       return;
     }
 
@@ -331,7 +369,6 @@ export function HomeScreen() {
       } else {
         setProfileMessage(firstError ?? "Failed to load followers.");
       }
-      setProfileLoading(false);
       return;
     }
 
@@ -350,7 +387,6 @@ export function HomeScreen() {
       return merged ?? previous;
     });
 
-    setProfileLoading(false);
   }, [accessToken, setAccessToken]);
 
   useEffect(() => {
@@ -360,21 +396,27 @@ export function HomeScreen() {
     void loadFollowProfile();
   }, [activeTab, loadFollowProfile]);
 
-  const viewedUser = viewedProfile
-    ? viewedProfile
-    : currentUserProfile
-      ? {
-          id: currentUserProfile.id,
-          name: currentUserProfile.name,
-          profilePicture: currentUserProfile.profilePicture,
-        }
-      : null;
+  const viewedUser = useMemo(
+    () =>
+      viewedProfile
+        ? viewedProfile
+        : currentUserProfile
+          ? {
+              id: currentUserProfile.id,
+              name: currentUserProfile.name,
+              profilePicture: currentUserProfile.profilePicture,
+            }
+          : null,
+    [currentUserProfile, viewedProfile],
+  );
   const isViewingSelf = Boolean(
     currentUserProfile && viewedUser && currentUserProfile.id === viewedUser.id,
   );
   const isFollowingViewedUser = Boolean(
     viewedUser && following.some((user) => user.id === viewedUser.id),
   );
+
+  const targetProfileUserId = viewedUser?.id ?? currentUserProfile?.id ?? null;
 
   useEffect(() => {
     if (activeTab !== "profile" || !accessToken || !currentUserProfile) {
@@ -385,7 +427,10 @@ export function HomeScreen() {
       return;
     }
 
-    const targetUserId = viewedUser?.id ?? currentUserProfile.id;
+    if (!targetProfileUserId) {
+      return;
+    }
+
     let cancelled = false;
 
     const loadStats = async () => {
@@ -393,9 +438,9 @@ export function HomeScreen() {
       setProfileMessage(null);
 
       const statsResponse =
-        targetUserId === currentUserProfile.id
+        targetProfileUserId === currentUserProfile.id
           ? await getMyProfileStats(accessToken)
-          : await getUserProfileStats(accessToken, targetUserId);
+          : await getUserProfileStats(accessToken, targetProfileUserId);
 
       if (!statsResponse.success || !statsResponse.data) {
         if (isUnauthorizedError(statsResponse.error)) {
@@ -413,7 +458,7 @@ export function HomeScreen() {
       if (!cancelled) {
         setProfileStats(statsResponse.data);
         if (leaderboardResponse.success && leaderboardResponse.data) {
-          const match = leaderboardResponse.data.find((entry) => entry.user_id === targetUserId);
+          const match = leaderboardResponse.data.find((entry) => entry.user_id === targetProfileUserId);
           setProfileRank(match?.rank ?? null);
         } else {
           setProfileRank(null);
@@ -426,7 +471,7 @@ export function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, activeTab, currentUserProfile, setAccessToken, viewedUser]);
+  }, [accessToken, activeTab, currentUserProfile, setAccessToken, targetProfileUserId]);
 
   const handleFollowToggle = useCallback(async () => {
     if (!accessToken || !viewedUser || !currentUserProfile || currentUserProfile.id === viewedUser.id) {
@@ -511,26 +556,31 @@ export function HomeScreen() {
         typeof profileStats?.average_focus_level === "number"
           ? profileStats.average_focus_level.toFixed(1)
           : "—";
+      const weeklyMinutes = profileStats?.study_time_last_7_days ?? 0;
+      const weeklyDailyAverage = Math.round(weeklyMinutes / 7);
+      const averageSessionLength =
+        profileStats && profileStats.total_sessions > 0
+          ? Math.round(profileStats.total_study_time / profileStats.total_sessions)
+          : 0;
 
       return (
         <ScrollView contentContainerStyle={styles.profileSurface} showsVerticalScrollIndicator={false}>
           <View style={styles.profileHero}>
             <Text style={styles.profileEyebrow}>{isViewingSelf ? "My Profile" : "User Profile"}</Text>
             <Text style={styles.profileName}>{profileStats?.name ?? viewedUser?.name ?? "Unnamed user"}</Text>
-            <Text style={styles.profileMeta}>
-              This Week: {formatStudyMinutes(profileStats?.study_time_last_7_days)}
-              {profileRank ? `  •  Rank #${profileRank}` : ""}
-            </Text>
-            <View style={styles.profileCountsRow}>
-              <View style={styles.profileCountCard}>
-                <Text style={styles.profileCountValue}>{followers.length}</Text>
-                <Text style={styles.profileCountLabel}>Followers</Text>
+            <View style={styles.profileEmphasisRow}>
+              <View style={styles.profileEmphasisCard}>
+                <Text style={styles.profileEmphasisLabel}>This Week</Text>
+                <Text style={styles.profileEmphasisValue}>{formatStudyMinutes(weeklyMinutes)}</Text>
               </View>
-              <View style={styles.profileCountCard}>
-                <Text style={styles.profileCountValue}>{following.length}</Text>
-                <Text style={styles.profileCountLabel}>Following</Text>
+              <View style={styles.profileEmphasisCard}>
+                <Text style={styles.profileEmphasisLabel}>Rank</Text>
+                <Text style={styles.profileEmphasisValue}>{profileRank ? `#${profileRank}` : "—"}</Text>
               </View>
             </View>
+            <Text style={styles.profileSocialMeta}>
+              {followers.length} followers • {following.length} following
+            </Text>
 
             {!isViewingSelf && viewedUser ? (
               <Pressable
@@ -595,6 +645,14 @@ export function HomeScreen() {
                 <Text style={styles.statLabel}>Current Streak</Text>
                 <Text style={styles.statValue}>{profileStats?.current_streak_days ?? 0}d</Text>
               </View>
+              <View style={styles.statCell}>
+                <Text style={styles.statLabel}>Daily Avg (7d)</Text>
+                <Text style={styles.statValue}>{formatStudyMinutes(weeklyDailyAverage)}</Text>
+              </View>
+              <View style={styles.statCell}>
+                <Text style={styles.statLabel}>Avg Session</Text>
+                <Text style={styles.statValue}>{formatStudyMinutes(averageSessionLength)}</Text>
+              </View>
             </View>
           </View>
 
@@ -602,9 +660,11 @@ export function HomeScreen() {
             <View style={styles.profileSection}>
               <Text style={styles.profileSectionTitle}>Recent Study Photos</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
-                {profileStats.recent_photos.map((photo) => (
-                  <Image key={`${photo.image_url}-${photo.created_at}`} source={{ uri: photo.image_url }} style={styles.profilePhoto} />
-                ))}
+                {profileStats.recent_photos.map((photo) => {
+                  const uri = resolveMediaUrl(photo.image_url);
+                  if (!uri) return null;
+                  return <Image key={`${photo.image_url}-${photo.created_at}`} source={{ uri }} style={styles.profilePhoto} />;
+                })}
               </ScrollView>
             </View>
           ) : null}
@@ -689,14 +749,14 @@ export function HomeScreen() {
             </Pressable>
           </View>
         </SafeAreaView>
-        {nearbyPrompt && nearbyPrompt.should_prompt && promptLocationId ? (
+        {shouldShowPrompt && promptLocationId ? (
           <View style={styles.checkinPromptCard}>
             <Text style={styles.checkinPromptTitle}>
-              {`Studying at ${nearbyPrompt.location_name ?? "this spot"}?`}
+              {`Studying at ${promptLocationName}?`}
             </Text>
             <Text style={styles.checkinPromptMeta}>
-              {nearbyPrompt.distance_meters
-                ? `Make sure to check in. About ${Math.round(nearbyPrompt.distance_meters)}m away.`
+              {promptDistanceMeters
+                ? `Make sure to check in. About ${Math.round(promptDistanceMeters)}m away.`
                 : "Make sure to check in."}
             </Text>
             <Pressable
@@ -707,6 +767,12 @@ export function HomeScreen() {
               ]}
             >
               <Text style={styles.checkinPromptActionText}>Check In At This Spot</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setDismissedPromptLocationId(promptLocationId)}
+              style={({ pressed }) => [styles.checkinPromptDismissButton, pressed && styles.checkinPromptActionButtonPressed]}
+            >
+              <Text style={styles.checkinPromptDismissText}>Maybe Later</Text>
             </Pressable>
           </View>
         ) : null}
@@ -885,6 +951,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
+  checkinPromptDismissButton: {
+    marginTop: 2,
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  checkinPromptDismissText: {
+    color: "#7a6d58",
+    fontSize: 12,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
   profileSurface: {
     paddingHorizontal: 14,
     paddingTop: 14,
@@ -911,34 +990,41 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "800",
   },
+  profileEmphasisRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    gap: 10,
+  },
+  profileEmphasisCard: {
+    flex: 1,
+    borderRadius: 14,
+    backgroundColor: "#f7f0e3",
+    borderWidth: 1,
+    borderColor: "#e0d2bb",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  profileEmphasisLabel: {
+    color: "#7d725f",
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    fontWeight: "800",
+  },
+  profileEmphasisValue: {
+    color: "#2f4232",
+    fontSize: 20,
+    fontWeight: "900",
+  },
   profileMeta: {
     color: "#6f6556",
     fontSize: 12,
   },
-  profileCountsRow: {
-    marginTop: 4,
-    flexDirection: "row",
-    gap: 10,
-  },
-  profileCountCard: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#decfb8",
-    backgroundColor: "#fffdf8",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  profileCountValue: {
-    color: "#3a4f38",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  profileCountLabel: {
-    color: "#786a58",
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
+  profileSocialMeta: {
+    color: "#7a7060",
+    fontSize: 12,
+    fontWeight: "600",
   },
   followButton: {
     marginTop: 4,
@@ -1002,7 +1088,7 @@ const styles = StyleSheet.create({
   },
   profileSectionTitle: {
     color: "#334632",
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "800",
   },
   statsGrid: {

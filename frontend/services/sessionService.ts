@@ -4,6 +4,7 @@ import type {
   CreateStudySessionPayload,
   EndPersonalSessionPayload,
   PersonalSessionsListResponse,
+  UpdatePersonalSessionHistoryPayload,
   FollowingLeaderboardEntry,
   SessionActionResponse,
   SessionUsageUpdatePayload,
@@ -78,6 +79,28 @@ export function completeSession(
     method: "POST",
     headers: authHeaders(accessToken),
     body: JSON.stringify(payload),
+  });
+}
+
+export function updateSessionHistory(
+  accessToken: string,
+  sessionId: string,
+  payload: UpdatePersonalSessionHistoryPayload,
+): Promise<ApiResponse<PersonalSessionsListResponse>> {
+  return apiRequest<PersonalSessionsListResponse>(`/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteSessionHistory(
+  accessToken: string,
+  sessionId: string,
+): Promise<ApiResponse<PersonalSessionsListResponse>> {
+  return apiRequest<PersonalSessionsListResponse>(`/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
   });
 }
 

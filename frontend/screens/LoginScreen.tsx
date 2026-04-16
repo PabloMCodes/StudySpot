@@ -120,7 +120,7 @@ export function LoginScreen() {
                   autoCorrect={false}
                   keyboardType="email-address"
                   onChangeText={setEmail}
-                  placeholder="studiousfoo@gmail.com"
+                  placeholder="ex: studiousfoo@gmail.com"
                   placeholderTextColor="#8C7A5A"
                   style={styles.input}
                   testID="emailInput"
@@ -135,7 +135,7 @@ export function LoginScreen() {
               <View style={styles.inputWrapper}>
                 <TextInput
                   onChangeText={setPassword}
-                  placeholder={isSignupMode ? "Create a password" : "studiousfoo123*"}
+                  placeholder={isSignupMode ? "Create a password" : "ex: studiousfoo123*"}
                   placeholderTextColor="#8C7A5A"
                   secureTextEntry={!showPassword}
                   style={styles.input}

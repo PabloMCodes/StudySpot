@@ -80,6 +80,17 @@ class PersonalSessionComplete(BaseModel):
     image_url: str | None = None
 
 
+class PersonalSessionHistoryUpdate(BaseModel):
+    topic: str | None = Field(default=None, min_length=1, max_length=200)
+    start_note: str | None = None
+    end_note: str | None = None
+    rating: int | None = Field(default=None, ge=1, le=5)
+    focus_level: int | None = Field(default=None, ge=1, le=4)
+    accomplishment_score: int | None = Field(default=None, ge=1, le=10)
+    add_photo_urls: list[str] = []
+    remove_photo_urls: list[str] = []
+
+
 class PersonalSessionResponse(BaseModel):
     """Personal session response payload."""
 
