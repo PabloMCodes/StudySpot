@@ -1,6 +1,6 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { MapContainer } from "../components/map/MapContainer";
 import { useAuth } from "../context/AuthContext";
@@ -19,6 +19,7 @@ import {
 } from "../services/notificationService";
 import { getFriendsLeaderboard } from "../services/sessionService";
 import { PRIVACY_POLICY_URL } from "../services/api";
+import { deleteMyAccount } from "../services/authService";
 import {
   acceptFriendRequest,
   cancelOrDeclineFriendRequest,
@@ -104,7 +105,7 @@ function ProfileIcon({ active = false }: { active?: boolean }) {
 }
 
 export function HomeScreen() {
-  const { accessToken, setAccessToken } = useAuth();
+  const { accessToken, setAccessToken, logout } = useAuth();
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +127,9 @@ export function HomeScreen() {
   const [updatingFriendship, setUpdatingFriendship] = useState(false);
   const [profileStats, setProfileStats] = useState<UserProfileStats | null>(null);
   const [profileRank, setProfileRank] = useState<number | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteConfirmStepActive, setDeleteConfirmStepActive] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const lastNotificationRef = useRef<{ key: string; sentAt: number } | null>(null);
   const lastInteractionRef = useRef<Record<string, number>>({});
 
@@ -595,6 +599,66 @@ export function HomeScreen() {
     }
   }, []);
 
+  const runDeleteAccount = useCallback(async () => {
+    if (!accessToken || deletingAccount) {
+      return;
+    }
+
+    setDeletingAccount(true);
+    setProfileMessage(null);
+    const response = await deleteMyAccount(accessToken);
+
+    if (!response.success) {
+      if (isUnauthorizedError(response.error)) {
+        setAccessToken(null);
+      } else {
+        setProfileMessage(response.error ?? "Failed to delete account.");
+      }
+      setDeletingAccount(false);
+      return;
+    }
+
+    await logout();
+    setDeletingAccount(false);
+  }, [accessToken, deletingAccount, logout, setAccessToken]);
+
+  const handleDeleteAccount = useCallback(() => {
+    if (!accessToken || deletingAccount) {
+      return;
+    }
+
+    Alert.alert(
+      "Delete account?",
+      "This will permanently remove your StudySpot account and data.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "This cannot be undone",
+              "You will lose your check-ins, sessions, friends, and saved spots.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Continue",
+                  style: "destructive",
+                  onPress: () => {
+                    setDeleteConfirmText("");
+                    setDeleteConfirmStepActive(true);
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  }, [accessToken, deletingAccount]);
+
+  const canSubmitDeleteTypedConfirmation = deleteConfirmText.trim().toUpperCase() === "DELETE";
+
   const renderContent = () => {
     if (activeTab === "saved") {
       return (
@@ -825,6 +889,65 @@ export function HomeScreen() {
               <Text style={styles.legalLinkText}>Privacy Policy</Text>
             </Pressable>
           </View>
+
+          {isViewingSelf ? (
+            <View style={styles.profileSection}>
+              <Text style={styles.profileSectionTitle}>Account</Text>
+              <Text style={styles.deleteAccountWarningText}>
+                Permanently delete your account and all associated StudySpot data.
+              </Text>
+              <Pressable
+                disabled={deletingAccount}
+                onPress={handleDeleteAccount}
+                style={({ pressed }) => [
+                  styles.deleteAccountButton,
+                  pressed && styles.deleteAccountButtonPressed,
+                  deletingAccount && styles.deleteAccountButtonDisabled,
+                ]}
+              >
+                <Text style={styles.deleteAccountButtonText}>{deletingAccount ? "Deleting..." : "Delete Account"}</Text>
+              </Pressable>
+              {deleteConfirmStepActive ? (
+                <View style={styles.deleteConfirmBox}>
+                  <Text style={styles.deleteConfirmTitle}>Final Confirmation</Text>
+                  <Text style={styles.deleteConfirmHint}>Type DELETE to permanently remove your account.</Text>
+                  <TextInput
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    editable={!deletingAccount}
+                    onChangeText={setDeleteConfirmText}
+                    placeholder="Type DELETE"
+                    placeholderTextColor="#9b8f7b"
+                    style={styles.deleteConfirmInput}
+                    value={deleteConfirmText}
+                  />
+                  <View style={styles.deleteConfirmActions}>
+                    <Pressable
+                      disabled={deletingAccount}
+                      onPress={() => {
+                        setDeleteConfirmStepActive(false);
+                        setDeleteConfirmText("");
+                      }}
+                      style={({ pressed }) => [styles.deleteConfirmCancelButton, pressed && styles.deleteAccountButtonPressed]}
+                    >
+                      <Text style={styles.deleteConfirmCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      disabled={deletingAccount || !canSubmitDeleteTypedConfirmation}
+                      onPress={() => void runDeleteAccount()}
+                      style={({ pressed }) => [
+                        styles.deleteConfirmSubmitButton,
+                        pressed && styles.deleteAccountButtonPressed,
+                        (deletingAccount || !canSubmitDeleteTypedConfirmation) && styles.deleteAccountButtonDisabled,
+                      ]}
+                    >
+                      <Text style={styles.deleteConfirmSubmitText}>{deletingAccount ? "Deleting..." : "Delete Forever"}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </ScrollView>
       );
     }
@@ -865,7 +988,12 @@ export function HomeScreen() {
                 </Pressable>
               ) : null}
             </View>
-            <Pressable onPress={() => setAccessToken(null)} style={styles.logoutButton}>
+            <Pressable
+              onPress={() => {
+                void logout();
+              }}
+              style={styles.logoutButton}
+            >
               <Text style={styles.logoutButtonText}>Sign Out</Text>
             </Pressable>
           </View>
@@ -1296,6 +1424,91 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     textDecorationLine: "underline",
+  },
+  deleteAccountWarningText: {
+    color: "#7d725f",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  deleteAccountButton: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d45f53",
+    backgroundColor: "#fff4f2",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  deleteAccountButtonPressed: {
+    opacity: 0.8,
+  },
+  deleteAccountButtonDisabled: {
+    opacity: 0.6,
+  },
+  deleteAccountButtonText: {
+    color: "#a13028",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  deleteConfirmBox: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ebc5bf",
+    backgroundColor: "#fff8f7",
+    padding: 10,
+    gap: 8,
+  },
+  deleteConfirmTitle: {
+    color: "#8f342c",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  deleteConfirmHint: {
+    color: "#7d725f",
+    fontSize: 12,
+  },
+  deleteConfirmInput: {
+    borderWidth: 1,
+    borderColor: "#e2d4bf",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: "#3f3529",
+    backgroundColor: "#fffdf9",
+    fontWeight: "700",
+  },
+  deleteConfirmActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  deleteConfirmCancelButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d7c7ae",
+    backgroundColor: "#fffdf8",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  deleteConfirmCancelText: {
+    color: "#6d6252",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  deleteConfirmSubmitButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d45f53",
+    backgroundColor: "#b53930",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  deleteConfirmSubmitText: {
+    color: "#fff8f7",
+    fontSize: 12,
+    fontWeight: "800",
   },
   tabBar: {
     position: "absolute",

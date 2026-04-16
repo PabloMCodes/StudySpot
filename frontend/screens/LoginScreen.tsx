@@ -15,7 +15,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 
 import { useAuth } from "../context/AuthContext";
-import { login } from "../services/authService";
+import { login, signInWithEmailPassword, signUpWithEmailPassword } from "../services/authService";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -49,11 +49,39 @@ export function LoginScreen() {
   const primaryCtaText = useMemo(() => (isSignupMode ? "Sign Up" : "Log In"), [isSignupMode]);
   const isValid = email.trim().length > 0 && password.trim().length > 0;
 
-  const handlePrimaryPress = () => {
+  const handlePrimaryPress = async () => {
     if (!isValid || loading) return;
 
-    setLoading(false);
-    setAuthMessage("Use Google login to get a valid session token.");
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password.trim();
+
+    setLoading(true);
+    setGoogleError(null);
+    setAuthMessage(null);
+
+    try {
+      const response = isSignupMode
+        ? await signUpWithEmailPassword(normalizedEmail, normalizedPassword)
+        : await signInWithEmailPassword(normalizedEmail, normalizedPassword);
+
+      if (!response.success) {
+        setAuthMessage(response.error ?? "Authentication failed.");
+        return;
+      }
+
+      if (response.data?.access_token) {
+        setAccessToken(response.data.access_token);
+        return;
+      }
+
+      setAuthMessage("Account created. Log in to continue.");
+      setIsSignupMode(false);
+      setPassword("");
+    } catch {
+      setAuthMessage("Unable to complete authentication. Try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -156,7 +184,9 @@ export function LoginScreen() {
             <Pressable
               accessibilityRole="button"
               disabled={!isValid || loading}
-              onPress={handlePrimaryPress}
+              onPress={() => {
+                void handlePrimaryPress();
+              }}
               style={[styles.primaryButton, (!isValid || loading) && styles.primaryButtonDisabled]}
               testID="primaryCta"
             >
